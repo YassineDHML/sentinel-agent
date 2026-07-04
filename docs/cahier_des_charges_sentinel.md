@@ -1,15 +1,17 @@
-# Cahier des Charges — Agent Sentinel
+# Cahier des Charges — Agent Sentinel (v3)
 ## Veille Stratégique AI SaaS B2B
 
 ---
 
-> **Projet** : Sentinel — Commando IA Veille Stratégique  
-> **Entreprise** : Welyne  
-> **Responsable** : Mohamed Ben Arfa (CEO)  
-> **Stagiaire** : Yassine  
-> **Durée** : 2 à 3 mois  
-> **Type** : MVP (Minimum Viable Product)  
-> **Date de rédaction** : Juin 2025
+> **Projet** : Sentinel — Commando IA Veille Stratégique
+> **Entreprise** : Welyne
+> **Responsable** : Mohamed Ben Arfa (CEO)
+> **Stagiaire** : Yassine
+> **Durée** : 2 à 3 mois
+> **Type** : MVP (Minimum Viable Product)
+> **Usage** : Projet non commercial (stage / développement personnel — usage interne)
+> **Date de rédaction** : Juin 2026
+> **Version** : 3 (quotas free tier vérifiés · fallback LLM tiéré · keep-alive Supabase)
 
 ---
 
@@ -19,7 +21,9 @@
 
 Welyne est une entreprise IT spécialisée dans l'intelligence artificielle. Dans le cadre du programme **AI Commandos** — une flotte d'agents IA spécialisés destinés à automatiser des fonctions clés d'entreprise — Welyne souhaite développer l'agent **Sentinel**, son module de veille stratégique.
 
-Ce projet est réalisé dans le cadre d'un stage de 2 à 3 mois. L'agent sera développé **from scratch**, sans données préexistantes ni intégrations disponibles, et sans recours à des outils ou APIs payants.
+Ce projet est réalisé dans le cadre d'un stage de 2 à 3 mois. L'agent sera développé **from scratch**, sans données préexistantes ni intégrations disponibles, et sans recours à des outils ou APIs payants. Le projet a une finalité **non commerciale** (stage / développement personnel), ce qui rend l'usage des offres *free tier* des APIs conforme à leurs conditions d'utilisation.
+
+> ⚠️ **Note ToS** : les niveaux gratuits utilisés (GNews, Gemini, etc.) sont autorisés pour un usage personnel / développement non commercial. Si Sentinel devait un jour évoluer vers une exploitation commerciale en production, les conditions d'utilisation de chaque API devront être réévaluées et, le cas échéant, migrées vers des offres adaptées.
 
 ### 1.2 Problème à résoudre
 
@@ -45,7 +49,7 @@ Sentinel est techniquement un **AI-powered workflow** (pipeline automatisé), et
 
 ### 1.5 Distinction POC vs MVP
 
-Ce projet vise un **MVP**, non un simple POC. Cette distinction est importante :
+Ce projet vise un **MVP**, non un simple POC.
 
 | Critère | POC | MVP (ce projet) |
 |---|---|---|
@@ -81,12 +85,22 @@ Ce projet vise un **MVP**, non un simple POC. Cette distinction est importante :
 
 ### 2.3 Sources de données
 
-| Source | Type | Exemples |
+La collecte privilégie **les APIs officielles gratuites et les flux RSS** avant tout scraping HTML, plus fiables et moins susceptibles d'être bloqués depuis un runner cloud (voir BF-01).
+
+| Source | Type | Exemples / Détails |
 |---|---|---|
 | Médias tech spécialisés | RSS (gratuit) | TechCrunch, VentureBeat, Wired |
-| Blogs officiels des acteurs | RSS / scraping (gratuit) | openai.com/blog, anthropic.com/news |
-| Agrégateurs communautaires | Scraping (gratuit) | Product Hunt, Hacker News |
-| Moteur de recherche actualités | GNews API (free tier) | Recherche par mots-clés sectoriels |
+| Blogs officiels des acteurs | RSS (gratuit) | openai.com/blog, anthropic.com/news |
+| Hacker News | API officielle gratuite | Algolia HN Search API (pas de scraping) |
+| Product Hunt | API officielle gratuite | API GraphQL (pas de scraping) |
+| Recherche actualités (découverte) | **Google News RSS Search** (gratuit, sans clé) | `news.google.com/rss/search?q=<mot-clé>` — pas de quota strict |
+| Recherche actualités (découverte) | **GNews API (free tier)** | Recherche par mots-clés sectoriels — voir contraintes ci-dessous |
+
+**Contraintes GNews free tier** (usage personnel / non commercial — conforme ToS) :
+- 100 requêtes/jour · 1 req/seconde · **10 articles max par requête** · **snippets tronqués uniquement**.
+- En conséquence, GNews est utilisé comme **couche de découverte** (trouver des articles pertinents par mot-clé), **pas** comme source de contenu.
+- Le **texte complet** des articles retenus est récupéré depuis l'URL de l'article (RSS/fetch léger) uniquement pour ceux qui passent le filtre de pertinence.
+- Google News RSS Search sert de source de découverte complémentaire pour contourner le quota et la limite de snippets de GNews.
 
 ---
 
@@ -94,14 +108,18 @@ Ce projet vise un **MVP**, non un simple POC. Cette distinction est importante :
 
 ### BF-01 — Collecte automatisée des sources
 
-L'agent doit être capable de **récupérer automatiquement** le contenu des sources définies, sans intervention manuelle.
+L'agent doit **récupérer automatiquement** le contenu des sources définies, sans intervention manuelle, en privilégiant les APIs officielles et les flux RSS.
 
-- Lecture des flux RSS des médias et blogs ciblés
-- Scraping léger des pages sans flux RSS disponible
-- Interrogation de GNews API par mots-clés (ex : "OpenAI", "AI agents", "LLM")
-- Horodatage de chaque article collecté pour le suivi temporel
+- Lecture des flux RSS des médias et blogs ciblés.
+- **APIs officielles gratuites en priorité** pour Hacker News (Algolia) et Product Hunt (GraphQL) — pas de scraping HTML de ces sites.
+- **Découverte par mots-clés** via Google News RSS Search + GNews API (ex : "OpenAI", "AI agents", "LLM").
+- **Récupération du texte complet** depuis l'URL des articles retenus (GNews ne renvoyant que des snippets).
+- Scraping HTML léger (`requests` + `BeautifulSoup`) réservé aux pages sans RSS ni API, dans le respect du `robots.txt` et avec un délai raisonnable entre requêtes.
+- Horodatage (`collected_at`) de chaque article collecté pour le suivi temporel.
 
-**Critère de validation** : L'agent collecte au moins 20 articles pertinents par cycle, sans intervention humaine.
+> ⚠️ **Contrainte cloud** : les sites protégés (Cloudflare, anti-bot) bloquent souvent les IP de datacenter (runners GitHub Actions). D'où la priorité donnée aux RSS et aux APIs officielles, plus robustes en environnement CI.
+
+**Critère de validation** : L'agent collecte au moins 20 articles pertinents par cycle, sans intervention humaine, principalement via RSS et APIs officielles.
 
 ---
 
@@ -109,70 +127,101 @@ L'agent doit être capable de **récupérer automatiquement** le contenu des sou
 
 Les données brutes collectées doivent être nettoyées avant analyse.
 
-- Suppression des articles en double via URL unique en base de données
-- Filtrage par mots-clés de pertinence (liste paramétrable dans un fichier de config)
-- Exclusion des articles hors périmètre sectoriel
-- Marquage des articles déjà traités lors des cycles précédents (`processed = TRUE`)
+- **Déduplication exacte** via URL unique en base de données (contrainte `UNIQUE`).
+- **Déduplication inter-sources (best effort)** : une même actualité reprise par plusieurs médias a des URL différentes. Un rapprochement par **similarité de titres** (normalisation + distance/fuzzy matching) regroupe ces doublons pour ne pas les compter plusieurs fois dans l'analyse.
+- Filtrage par mots-clés de pertinence (liste paramétrable dans un fichier de config).
+- Exclusion des articles hors périmètre sectoriel.
+- Marquage des articles déjà traités lors des cycles précédents (`processed = TRUE`).
 
-**Critère de validation** : Moins de 5 % de doublons dans les articles soumis à l'analyse IA.
+**Critère de validation** : Moins de 5 % de **doublons exacts** (même URL) dans les articles soumis à l'analyse IA ; réduction visible des doublons inter-sources grâce à la similarité de titres.
 
 ---
 
 ### BF-03 — Analyse IA
 
-Le LLM traite les articles filtrés pour en extraire de l'intelligence. Modèle utilisé : **Llama 3.1 ou Mixtral via Groq API (gratuit)**.
+Le LLM traite les articles filtrés pour en extraire de l'intelligence.
 
-- **Résumé** : produire un résumé de 3 à 5 lignes par article pertinent
-- **Comparaison concurrentielle** : identifier qui fait quoi parmi les acteurs suivis
-- **Détection de tendances** : repérer les sujets récurrents sur la semaine courante ET sur les semaines précédentes (grâce à la mémoire historique)
-- **Extraction d'opportunités** : signaler ce qui pourrait être pertinent pour Welyne
+**Modèle utilisé** : **Google Gemini API (free tier — famille Flash)** en principal, **Groq (`llama-3.3-70b-versatile`) en solution de repli tiérée**.
+
+- **Modèles Gemini free tier (mi-2026)** : famille **Flash** uniquement — `Gemini 2.5 Flash`, `Gemini 3 Flash`, ou `Gemini 3.1 Flash-Lite` (nom paramétré en config). ⚠️ Le free tier de la famille **Pro** a été supprimé en avril 2026 : s'en tenir strictement à la famille Flash.
+- **Quotas Gemini (à confirmer au démarrage)** : ~10–15 requêtes/minute (RPM) · 1 500 requêtes/jour (RPD) · 250 000 à 1 000 000 tokens/minute (TPM) selon la version. Le RPD est largement suffisant pour une exécution hebdomadaire.
+- **Justification** : le grand contexte de Gemini Flash (~1M tokens) permet d'ingérer en une passe les articles de la semaine **et** l'historique des tendances des 4 semaines précédentes ; free tier généreux ; bonne qualité de résumé en anglais et en français.
+- **Batching (respect du RPM)** : ne pas faire un appel par article (20+ articles → risque de throttling à ~10-15 RPM). Regrouper **plusieurs articles par requête** pour les résumés/classification — plus économe en tokens et compatible avec le plafond RPM.
+- **Repli Groq — tiéré, pas identique** : `llama-3.3-70b-versatile` est disponible en free tier mais limité à **12 000 TPM / 30 RPM / 1 000 RPD** (limites au niveau de l'organisation — impossible de contourner avec plusieurs clés). Ce plafond de 12 000 TPM est **trop serré** pour l'analyse à contexte historique. En conséquence :
+  - L'**analyse de tendances à contexte historique** (articles + 4 semaines) reste **exclusivement sur Gemini**.
+  - Groq n'assure en repli que les **tâches légères en tokens** (résumés, classification) par petits lots.
+  - Si Gemini est indisponible, le pipeline **dégrade gracieusement** : résumés via Groq + un **digest compressé** des tendances (jamais l'historique brut), plutôt que de saturer la fenêtre de 12 000 TPM.
+- **Note confidentialité** : le free tier Gemini peut utiliser les entrées pour améliorer le service. Acceptable ici car les sources sont **publiques** ; à réévaluer en cas de passage en production.
+- **Note stabilité** : les versions de modèles évoluent ; le nom du modèle est paramétré en config, jamais codé en dur.
+
+Tâches réalisées par le LLM :
+
+- **Résumé** : produire un résumé de 3 à 5 lignes par article pertinent.
+- **Classification par tags canoniques** : rattacher chaque article à 0..n **sujets d'une liste canonique prédéfinie** (fichier de config, ~15-25 tags). Cela évite que le LLM invente des libellés de sujets variables ("multi-modal agents" vs "multimodal AI agents") et fiabilise le comptage des tendances (voir BF-04).
+- **Comparaison concurrentielle** : identifier qui fait quoi parmi les acteurs suivis.
+- **Détection de tendances** : repérer les sujets récurrents sur la semaine courante ET sur les semaines précédentes (grâce à la mémoire historique).
+- **Extraction d'opportunités** : signaler ce qui pourrait être pertinent pour Welyne.
+
+> **Garde-fou anti-hallucination** : chaque opportunité et chaque affirmation du rapport doit être **rattachée à un ou plusieurs articles sources cités**. Le LLM ne doit rien affirmer qui ne soit ancré dans les articles fournis en contexte.
 
 > Le LLM reçoit en contexte les articles de la semaine **et** un résumé des tendances des 4 semaines précédentes, ce qui lui permet de distinguer une nouvelle tendance d'une tendance en accélération.
 
-**Critère de validation** : Les résumés générés sont cohérents et exploitables sans relecture de l'article source.
+**Critère de validation** : Les résumés générés sont cohérents, sourcés et exploitables sans relecture de l'article source.
 
 ---
 
 ### BF-04 — Mémoire historique
 
-Pour améliorer la qualité de la détection de tendances, le système conserve un **historique structuré** dans la base de données SQLite. Chaque cycle de collecte alimente cet historique plutôt que de repartir de zéro.
+Pour améliorer la qualité de la détection de tendances, le système conserve un **historique structuré** dans une base de données **Supabase (PostgreSQL managé, free tier)**. Chaque cycle de collecte alimente cet historique plutôt que de repartir de zéro.
 
-Le schéma de base de données comprend trois tables :
+> 🔑 **Décision d'architecture (correction v2)** : la mémoire **ne peut pas** vivre dans un fichier SQLite local, car les runners GitHub Actions sont **éphémères** (système de fichiers réinitialisé à chaque exécution). L'historique serait perdu à chaque cycle. **Supabase** fournit une base PostgreSQL **persistante et hébergée dans le cloud**, accessible depuis le runner via une simple chaîne de connexion / clé API stockée en secret. C'est ce qui rend la mémoire historique réellement fonctionnelle.
+
+> ⚠️ **Limites free tier Supabase (v3)** :
+> - **Taille base 500 Mo** (+ 1 Go de stockage fichiers) : très suffisant pour du texte + métadonnées sur un MVP de 2-3 mois.
+> - **Mise en pause après 7 jours d'inactivité** : *critique* pour un pipeline hebdomadaire. La base risque d'être en pause **exactement** au moment où le cron s'exécute ; le réveil prend ~30 s et provoquerait un timeout.
+> - **Solution — keep-alive** : un **workflow GitHub Actions secondaire et léger** exécute une requête `SELECT 1` **tous les 3 à 4 jours** pour réinitialiser le compteur d'inactivité (gratuit, quelques secondes).
+> - **Ceinture + bretelles** : la connexion du pipeline principal intègre en plus un **retry avec backoff**, pour qu'un éventuel réveil à froid coûte au pire une nouvelle tentative plutôt qu'une exécution échouée.
+
+Schéma de base de données (PostgreSQL) — trois tables :
 
 ```sql
 -- Tous les articles collectés (mémoire permanente)
-CREATE TABLE articles (
-    id           INTEGER PRIMARY KEY,
-    url          TEXT UNIQUE,       -- clé de déduplication
-    title        TEXT,
-    source       TEXT,
-    actor        TEXT,              -- ex: "OpenAI", "Mistral"
-    published_at DATETIME,
-    summary      TEXT,              -- résumé généré par le LLM
-    processed    BOOLEAN DEFAULT 0
+create table articles (
+    id            bigint generated always as identity primary key,
+    url           text unique not null,   -- clé de déduplication exacte
+    title         text,
+    source        text,
+    actor         text,                   -- ex: "OpenAI", "Mistral"
+    topics        text[],                 -- tags canoniques attribués par le LLM
+    published_at  timestamptz,
+    collected_at  timestamptz default now(),
+    summary       text,                   -- résumé généré par le LLM
+    processed     boolean default false
 );
 
 -- Fréquence des sujets semaine par semaine
-CREATE TABLE trends (
-    id            INTEGER PRIMARY KEY,
-    topic         TEXT,             -- ex: "multi-modal agents"
-    week          TEXT,             -- ex: "2025-W24"
-    article_count INTEGER,          -- nombre d'articles sur ce sujet cette semaine
-    actors        TEXT              -- acteurs concernés (JSON)
+create table trends (
+    id            bigint generated always as identity primary key,
+    topic         text,                   -- issu de la liste canonique (BF-03)
+    week          text,                   -- ex: "2026-W24"
+    article_count integer,                -- nb d'articles sur ce sujet cette semaine
+    actors        jsonb                   -- acteurs concernés
 );
 
 -- Rapports générés (archivage)
-CREATE TABLE reports (
-    id            INTEGER PRIMARY KEY,
-    week          TEXT,
-    generated_at  DATETIME,
-    content_html  TEXT
+create table reports (
+    id            bigint generated always as identity primary key,
+    week          text,
+    generated_at  timestamptz default now(),
+    content_html  text
 );
 ```
 
-**Bénéfice** : le rapport peut indiquer "ce sujet est mentionné pour la 3e semaine consécutive, avec une forte accélération" — une information bien plus actionnable qu'un simple résumé hebdomadaire isolé.
+**Bootstrap de l'historique (Sprint 1)** : la détection de tendances en accélération n'a de sens qu'avec plusieurs semaines de données. Pour disposer d'un historique dès le premier rapport, un **backfill initial** exécute la collecte sur les archives RSS / actualités des semaines passées et pré-remplit la table `trends`. Sans cela, la fonctionnalité phare ne serait démontrable qu'en toute fin de stage.
 
-**Critère de validation** : Le rapport distingue les nouvelles tendances des tendances en accélération, avec référence aux semaines précédentes.
+**Bénéfice** : le rapport peut indiquer "ce sujet est mentionné pour la 3e semaine consécutive, avec une forte accélération" — bien plus actionnable qu'un simple résumé hebdomadaire isolé.
+
+**Critère de validation** : Le rapport distingue les nouvelles tendances des tendances en accélération, avec référence aux semaines précédentes, dès les premiers cycles grâce au backfill.
 
 ---
 
@@ -185,10 +234,10 @@ Contenu du rapport hebdomadaire :
 1. **Résumé exécutif** — les 3 à 5 faits marquants de la semaine (1 page max)
 2. **Veille concurrentielle** — ce que chaque acteur surveillé a fait cette semaine
 3. **Tendances détectées** — sujets émergents + tendances en accélération (avec contexte historique)
-4. **Opportunités pour Welyne** — recommandations issues de l'analyse
+4. **Opportunités pour Welyne** — recommandations issues de l'analyse, **chacune reliée à ses articles sources**
 5. **Sources consultées** — liste des articles analysés avec liens
 
-**Critère de validation** : Le rapport est généré sans intervention humaine et directement lisible par le CEO.
+**Critère de validation** : Le rapport est généré sans intervention humaine, directement lisible par le CEO, et chaque insight est traçable jusqu'à sa source.
 
 ---
 
@@ -196,10 +245,10 @@ Contenu du rapport hebdomadaire :
 
 Le rapport est envoyé automatiquement aux destinataires définis, sans action manuelle.
 
-- Envoi par email via **Gmail SMTP** (gratuit)
-- Envoi optionnel vers un canal Slack via **webhook Slack** (gratuit)
-- Liste de destinataires paramétrable dans le fichier de configuration
-- Objet de l'email automatique avec la date du rapport
+- Envoi par email via **Gmail SMTP** (gratuit). ⚠️ Nécessite l'activation de la double authentification et un **mot de passe d'application** dédié (stocké en secret, jamais en clair).
+- Envoi optionnel vers un canal Slack via **webhook Slack** (gratuit).
+- Liste de destinataires paramétrable dans le fichier de configuration.
+- Objet de l'email automatique avec la date du rapport.
 
 **Critère de validation** : Le CEO reçoit le rapport par email chaque lundi matin sans aucune action manuelle.
 
@@ -209,10 +258,11 @@ Le rapport est envoyé automatiquement aux destinataires définis, sans action m
 
 L'ensemble du pipeline s'exécute de façon planifiée et autonome dans le cloud.
 
-- Déclenchement automatique via **GitHub Actions** (cron hebdomadaire, gratuit)
-- Journalisation des exécutions (logs) pour le suivi et le débogage
-- Gestion des erreurs : si une source est indisponible, le pipeline continue sur les autres
-- Configuration centralisée dans un fichier `.env` ou `config.yaml`
+- Déclenchement automatique via **GitHub Actions** (cron hebdomadaire, gratuit).
+- ⚠️ **Fuseau horaire** : le cron GitHub Actions s'exécute en **UTC**. L'horaire doit être décalé pour que « lundi matin » corresponde bien à l'heure française (CET/CEST).
+- **Gestion des secrets** : clés API (Gemini, Groq, GNews), identifiants Gmail, connexion Supabase et webhook Slack sont stockés dans les **GitHub Secrets** — **jamais** commités dans le dépôt. Seule la configuration non sensible (listes d'acteurs, mots-clés, tags canoniques, destinataires) vit dans `config.yaml`.
+- Journalisation des exécutions (logs) pour le suivi et le débogage.
+- Gestion des erreurs : si une source est indisponible, le pipeline continue sur les autres (dégradation gracieuse).
 
 **Critère de validation** : L'agent s'exécute de façon autonome pendant 2 semaines consécutives sans intervention.
 
@@ -220,28 +270,35 @@ L'ensemble du pipeline s'exécute de façon planifiée et autonome dans le cloud
 
 ## 4. Architecture technique
 
-Le pipeline de Sentinel est composé de 4 étapes séquentielles. La base de données SQLite joue un double rôle : stockage courant **et** mémoire historique inter-cycles.
+Le pipeline de Sentinel est composé de 4 étapes séquentielles. La base de données **Supabase (PostgreSQL cloud)** joue un double rôle : stockage courant **et** mémoire historique inter-cycles, **persistante** entre les exécutions du runner.
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌─────────────┐
 │   COLLECTE  │────▶│  TRAITEMENT  │────▶│  GÉNÉRATION  │────▶│  DIFFUSION  │
 │             │     │              │     │              │     │             │
-│ RSS Fetcher │     │ Stockage brut│     │  Groq + LLM  │     │ Gmail SMTP  │
-│ Web Scraper │     │ Filtre/Dédup │◀───▶│ Jinja2 HTML  │     │ Slack Hook  │
-│ GNews API   │     │   SQLite     │     │              │     │             │
+│ RSS Fetcher │     │ Filtre/Dédup │     │ Gemini (LLM) │     │ Gmail SMTP  │
+│ HN / PH API │     │ (URL + fuzzy)│◀───▶│ Groq (repli) │     │ Slack Hook  │
+│ Google News │     │  + Tagging   │     │ Jinja2 HTML  │     │             │
+│ GNews (déc.)│     │              │     │              │     │             │
 └─────────────┘     └──────────────┘     └──────────────┘     └─────────────┘
                           ▲ ▼
                     ┌──────────────┐
-                    │   MÉMOIRE    │
-                    │  HISTORIQUE  │  ← articles, trends, reports
-                    │   (SQLite)   │
+                    │   MÉMOIRE     │
+                    │  HISTORIQUE   │  ← articles, trends, reports (PERSISTANT)
+                    │  (Supabase /  │
+                    │  PostgreSQL)  │
                     └──────────────┘
        ▲
        │
-  ┌──────────────┐
-  │ GitHub Actions│  ← déclenche tout le pipeline, tourne dans le cloud
-  │  (cron free) │
-  └──────────────┘
+  ┌───────────────┐
+  │ GitHub Actions │  ← déclenche tout le pipeline (cron UTC), tourne dans le cloud
+  │  (cron free)   │     runner éphémère → l'état vit dans Supabase, pas sur disque
+  └───────────────┘
+
+  ┌────────────────────┐
+  │ Keep-alive workflow │  ← SELECT 1 tous les 3-4 jours → empêche la pause Supabase (7 j)
+  │  (GitHub Actions)   │
+  └────────────────────┘
 ```
 
 ---
@@ -251,18 +308,22 @@ Le pipeline de Sentinel est composé de 4 étapes séquentielles. La base de don
 | Brique | Outil | Justification |
 |---|---|---|
 | **Langage** | Python 3.11+ | Standard IA, écosystème large |
-| **LLM** | Groq API (Llama 3.1 / Mixtral) | Gratuit · rapide · API identique à OpenAI |
+| **LLM (principal)** | Google Gemini API (famille Flash, free tier) | Gratuit · grand contexte (~1M tokens) pour articles + historique · ~1500 RPD · bon en FR/EN |
+| **LLM (repli tiéré)** | Groq API (`llama-3.3-70b-versatile`) | Gratuit · rapide · **12k TPM** → réservé aux tâches légères (résumés/classification) |
 | **Collecte RSS** | `feedparser` | Python natif · 100 % gratuit |
-| **Scraping** | `requests` + `BeautifulSoup` | Léger · gratuit · standard |
-| **API Actualités** | GNews API (free tier) | 100 req/jour · sans restriction commerciale |
-| **Stockage & mémoire** | SQLite (`sqlite3`) | Intégré Python · zéro configuration · mémoire historique |
+| **Découverte actualités** | Google News RSS Search + GNews (free tier) | Sans clé (Google News) · GNews en complément par mot-clé |
+| **APIs sources officielles** | Algolia HN Search · Product Hunt GraphQL | Gratuites · plus fiables que le scraping |
+| **Scraping (fallback)** | `requests` + `BeautifulSoup` | Léger · gratuit · réservé aux pages sans RSS/API |
+| **Stockage & mémoire** | **Supabase (PostgreSQL, free tier)** | Cloud · **persistant** · 500 Mo (suffisant) · pause après 7 j → keep-alive requis |
+| **Keep-alive DB** | 2ᵉ workflow GitHub Actions (`SELECT 1`) | Gratuit · tous les 3-4 j · évite la mise en pause Supabase |
 | **Templates rapport** | Jinja2 | Gratuit · rendu HTML propre |
 | **Scheduling & déploiement** | GitHub Actions (cron) | Gratuit · cloud · logs intégrés |
-| **Email** | Gmail SMTP (`smtplib`) | Gratuit · natif Python |
+| **Email** | Gmail SMTP (`smtplib`) | Gratuit · natif Python · mot de passe d'application requis |
 | **Slack** | Incoming Webhooks Slack | Gratuit · une URL à configurer |
 | **Logs** | `logging` (natif Python) | Gratuit · suffisant pour un MVP |
 
-> ✅ **Aucun outil payant, aucune carte bancaire requise.** Tous les outils ci-dessus ont une version gratuite suffisante pour le volume d'un MVP sectoriel.
+> ✅ **Aucun outil payant, aucune carte bancaire requise.** Tous les outils ci-dessus ont une version gratuite suffisante pour le volume d'un MVP sectoriel non commercial.
+> ⚠️ **Quotas free tier vérifiés (mi-2026, à reconfirmer au démarrage)** : Gemini Flash ~10-15 RPM / 1 500 RPD / 250k-1M TPM · Groq 70B 30 RPM / 12 000 TPM / 1 000 RPD (limites au niveau organisation) · Supabase 500 Mo, pause à 7 j · GNews 100 req/j, 10 articles/req, snippets.
 
 ---
 
@@ -270,8 +331,13 @@ Le pipeline de Sentinel est composé de 4 étapes séquentielles. La base de don
 
 | Contrainte | Description |
 |---|---|
+| **Usage non commercial** | Projet de stage / développement personnel — conforme aux free tiers utilisés |
 | **Zéro outil payant** | Stack 100 % gratuit — APIs free tier, bibliothèques open source |
 | **Zéro intégration existante** | Tout est construit from scratch |
+| **Persistance obligatoire** | L'état (mémoire historique) doit survivre entre exécutions → Supabase, pas de stockage local |
+| **Anti-pause Supabase** | Keep-alive tous les 3-4 j (free tier pausé à 7 j d'inactivité) + retry/backoff à la connexion |
+| **Budget tokens LLM** | Analyse historique sur Gemini uniquement ; Groq (12k TPM) réservé aux tâches légères ; batching des appels |
+| **Secrets protégés** | Toutes les clés/identifiants dans GitHub Secrets, jamais dans le dépôt |
 | **Durée** | MVP livré et déployé en 2 à 3 mois |
 | **Maintenabilité** | Code documenté et repris par l'équipe après le stage |
 | **Sources publiques** | Uniquement des sources accessibles sans abonnement |
@@ -293,16 +359,16 @@ Le pipeline de Sentinel est composé de 4 étapes séquentielles. La base de don
 
 ## 8. Planning
 
-Le stage est découpé en **6 sprints de 2 semaines** (sur 12 semaines).
+Le stage est découpé en **6 sprints de 2 semaines** (sur 12 semaines). L'itération sur les prompts et la qualité d'analyse est volontairement étalée sur S3–S4 (partie la plus délicate).
 
 | Sprint | Semaines | Objectif | Tâches principales |
 |---|---|---|---|
-| **S1** | 1 – 2 | Fondations | Setup Python + GitHub, collecte RSS fonctionnelle, GNews API, schéma SQLite + mémoire historique |
-| **S2** | 3 – 4 | Traitement | Filtrage mots-clés, déduplication via URL unique, alimentation table `trends`, logs |
-| **S3** | 5 – 6 | Analyse IA | Intégration Groq API, prompts résumé, comparaison concurrentielle, contexte historique |
-| **S4** | 7 – 8 | Rapport | Templates Jinja2, génération HTML, détection de tendances avec historique, opportunités |
-| **S5** | 9 – 10 | Diffusion & Deploy | Gmail SMTP, Slack webhook, GitHub Actions cron, fichier de config |
-| **S6** | 11 – 12 | Stabilisation | Tests end-to-end, gestion d'erreurs, documentation, démo finale |
+| **S1** | 1 – 2 | Fondations | Setup Python + GitHub · collecte RSS · APIs HN/Product Hunt · Google News RSS + GNews · **provisioning Supabase + schéma + keep-alive** · **backfill historique initial** |
+| **S2** | 3 – 4 | Traitement | Filtrage mots-clés · déduplication (URL + similarité titres) · liste de tags canoniques · alimentation `trends` · logs |
+| **S3** | 5 – 6 | Analyse IA | Intégration Gemini (+ fallback Groq tiéré) · **batching des appels** · prompts résumé & classification par tags · comparaison concurrentielle · contexte historique · **début itération qualité** |
+| **S4** | 7 – 8 | Rapport & analyse (suite) | Templates Jinja2 · génération HTML · détection tendances (nouvelles vs accélération) · opportunités sourcées · **poursuite itération prompts** |
+| **S5** | 9 – 10 | Diffusion & Deploy | Gmail SMTP (mot de passe d'application) · Slack webhook · GitHub Actions cron (fuseau UTC) · secrets · config |
+| **S6** | 11 – 12 | Stabilisation | Tests end-to-end · gestion d'erreurs · documentation · démo finale |
 
 ---
 
@@ -311,10 +377,13 @@ Le stage est découpé en **6 sprints de 2 semaines** (sur 12 semaines).
 Le MVP est considéré comme livré si :
 
 - [ ] L'agent s'exécute **de façon 100 % autonome** via GitHub Actions
+- [ ] La **mémoire historique persiste** entre les exécutions (Supabase)
+- [ ] Un **keep-alive** empêche la mise en pause de la base sur toute la durée d'exploitation
 - [ ] Un rapport est **généré et envoyé chaque semaine** sans action manuelle
-- [ ] Le rapport contient : résumé exécutif, veille concurrentielle, tendances (avec contexte historique), opportunités
+- [ ] Le rapport contient : résumé exécutif, veille concurrentielle, tendances (avec contexte historique), opportunités **sourcées**
 - [ ] Le pipeline tourne **sans interruption pendant 2 semaines consécutives**
 - [ ] Le code est **déposé sur GitHub**, documenté, et repris possible par un tiers
+- [ ] Les secrets sont **hors du dépôt** (GitHub Secrets)
 - [ ] **Aucun outil payant** n'est utilisé dans la solution finale
 - [ ] Le CEO valide la **pertinence des insights** produits par l'agent
 
@@ -331,7 +400,8 @@ Les éléments suivants sont **exclus** et pourront être envisagés dans une ve
 - Alertes en temps réel (le MVP est hebdomadaire)
 - Multi-langues (le MVP cible les sources en anglais)
 - LLMs ou APIs payants
+- Exploitation **commerciale** en production (nécessiterait une réévaluation des ToS et des offres)
 
 ---
 
-*Document rédigé dans le cadre du stage Welyne — Agent Sentinel (Veille Stratégique AI SaaS B2B)*
+*Document rédigé dans le cadre du stage Welyne — Agent Sentinel (Veille Stratégique AI SaaS B2B) — v2, révision après revue technique.*
