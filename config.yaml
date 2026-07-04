@@ -1,0 +1,118 @@
+# Sentinel — non-secret configuration.
+# Secrets (API keys, DB credentials, Gmail, Slack) live in the environment / .env,
+# NEVER here. See .env.example.
+#
+# Starter values drawn from the cahier des charges (docs/, section 2). Edit freely.
+# Per the MVP scope: start with 2 categories and ~5-8 actors.
+
+app:
+  name: Sentinel
+  report_language: en        # MVP targets English-language sources (spec §10)
+  timezone: Europe/Paris     # used for "Monday morning FR time" scheduling context
+  weeks_history: 4           # weeks of trend history fed to the LLM as context (BF-04)
+  log_level: INFO            # DEBUG | INFO | WARNING | ERROR (env LOG_LEVEL overrides)
+
+llm:
+  # NOTE: model names are configurable on purpose (spec BF-03) — versions move fast.
+  # VERIFY the exact free-tier Flash model id at startup; use only the Flash family
+  # (the Pro free tier was removed in April 2026).
+  gemini_model: gemini-2.5-flash          # primary — Flash family only
+  groq_model: llama-3.3-70b-versatile     # fallback — token-light tasks only (12k TPM)
+  batch_size: 8                            # articles per LLM call (RPM-safe batching)
+
+# Monitored categories (start with 2 for a manageable MVP scope).
+categories:
+  - LLM Providers
+  - Agent Platforms
+
+# Monitored actors. `aliases` help relevance matching + actor attribution.
+actors:
+  - name: OpenAI
+    category: LLM Providers
+    aliases: [OpenAI, GPT, ChatGPT, GPT-4, GPT-5]
+  - name: Anthropic
+    category: LLM Providers
+    aliases: [Anthropic, Claude]
+  - name: Mistral AI
+    category: LLM Providers
+    aliases: [Mistral, Mistral AI, Le Chat]
+  - name: Google Gemini
+    category: LLM Providers
+    aliases: [Gemini, Google DeepMind, DeepMind]
+  - name: LangChain
+    category: Agent Platforms
+    aliases: [LangChain, LangGraph, LangSmith]
+  - name: CrewAI
+    category: Agent Platforms
+    aliases: [CrewAI, Crew AI]
+  - name: AutoGen
+    category: Agent Platforms
+    aliases: [AutoGen, AG2]
+
+# Relevance filtering (BF-02). `keywords` = an article must plausibly match the
+# sector; `exclude` = drop obvious out-of-sector noise. Matching logic in Phase 3.
+relevance:
+  keywords:
+    - AI
+    - artificial intelligence
+    - LLM
+    - large language model
+    - generative AI
+    - AI agent
+    - agentic
+    - foundation model
+    - machine learning
+    - API
+    - SaaS
+    - enterprise AI
+    - funding
+    - pricing
+    - launch
+    - open source
+  exclude:
+    - crypto
+    - cryptocurrency
+    - NFT
+    - sports
+    - celebrity
+    - horoscope
+
+# Canonical topic tags for LLM classification (BF-03, ~15-25 tags).
+# The LLM MUST pick from this closed list (0..n per article) — it does not invent
+# labels. This is what makes weekly trend counting reliable (BF-04).
+topics:
+  - LLM release
+  - model benchmark
+  - funding and investment
+  - mergers and acquisitions
+  - pricing change
+  - product launch
+  - feature update
+  - AI agents
+  - multimodal AI
+  - open source models
+  - developer tools
+  - API and platform
+  - enterprise adoption
+  - partnership
+  - AI safety and alignment
+  - AI regulation
+  - fine-tuning and customization
+  - retrieval and RAG
+  - inference and performance
+  - competitive positioning
+
+# Which collectors to run (wired up in Phase 2). Scraping is last-resort (spec BF-01).
+sources:
+  rss: true
+  hackernews: true
+  producthunt: true
+  googlenews: true
+  gnews: true
+  scraping: false
+
+# Report delivery (BF-06). Recipient emails are non-secret; Gmail credentials are.
+report:
+  subject_prefix: "Sentinel Weekly"
+  recipients:
+    - ceo@example.com        # placeholder — replace with real recipient(s)
