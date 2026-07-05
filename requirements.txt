@@ -1,9 +1,8 @@
 # Sentinel runtime dependencies.
 #
-# Versions reflect what was current around the assistant's knowledge cutoff
-# (early 2026) and are PINNED for reproducible CI. Reconfirm/update before the
-# first install — especially the fast-moving SDKs flagged with `VERIFY` below:
-#   pip index versions <package>     # or check the package's PyPI page
+# STRICT == pinning throughout: this is an unattended weekly pipeline, so
+# reproducibility matters more than auto-updates. All versions below are verified
+# to have Python 3.14 wheels. Bump deliberately, never automatically.
 
 # --- Collection (Phase 2) ---
 feedparser==6.0.11
@@ -19,19 +18,14 @@ python-dotenv==1.0.1
 
 # --- Persistence: Supabase (Phase 1) ---
 # PyPI package is `supabase` (the supabase-py client, 2.x line).
-# VERIFY: exact latest 2.x version against mid-2026 releases before install.
-supabase==2.15.0
+supabase==2.31.0
 
 # --- LLM: Google Gemini (Phase 4) ---
-# IMPORTANT: two Google SDKs exist. The current/recommended one is `google-genai`
-# (the unified GenAI SDK); the legacy one is `google-generativeai`. The spec
-# targets the Gemini 3 Flash family (mid-2026), so use the new SDK.
-# VERIFY: both the package name AND version on PyPI before install.
-google-genai==1.0.0
+# The unified GenAI SDK (`google-genai`), NOT the legacy `google-generativeai`.
+google-genai==2.10.0
 
 # --- LLM fallback: Groq (Phase 4) ---
-# VERIFY: latest version on PyPI before install.
-groq==0.13.0
+groq==1.5.0
 
 # --- Dev / test ---
 # Tests mock all external calls (no live APIs, no secrets).
