@@ -86,6 +86,13 @@ class Actor:
 
 
 @dataclass(frozen=True)
+class Feed:
+    name: str
+    url: str
+    actor: str | None = None
+
+
+@dataclass(frozen=True)
 class ReportConfig:
     recipients: list[str]
     subject_prefix: str
@@ -104,6 +111,8 @@ class Settings:
     topics: list[str]
     report: ReportConfig
     sources: dict[str, bool]
+    feeds: list[Feed]
+    discovery_queries: list[str]
     raw: dict[str, Any]  # full parsed YAML, for forward-compatibility
 
 
@@ -146,6 +155,18 @@ def _build_actors(raw_actors: list[Any], valid_categories: set[str]) -> list[Act
         _require_type(aliases, list, f"{path}.aliases")
         actors.append(Actor(name=name, category=category, aliases=[str(a) for a in aliases]))
     return actors
+
+
+def _build_feeds(raw_feeds: list[Any]) -> list[Feed]:
+    feeds: list[Feed] = []
+    for i, entry in enumerate(raw_feeds):
+        path = f"feeds[{i}]"
+        _require_type(entry, dict, path)
+        name = _require_type(_require(entry, "name", f"{path}.name"), str, f"{path}.name")
+        url = _require_type(_require(entry, "url", f"{path}.url"), str, f"{path}.url")
+        actor = entry.get("actor")
+        feeds.append(Feed(name=name, url=url, actor=str(actor) if actor else None))
+    return feeds
 
 
 # --------------------------------------------------------------------------- #
@@ -249,6 +270,12 @@ def load_settings(
     # --- sources (toggles) ------------------------------------------------- #
     sources = {str(k): bool(v) for k, v in (data.get("sources") or {}).items()}
 
+    # --- feeds + discovery queries (optional; used by the collectors) ------ #
+    feeds = _build_feeds(_require_type(data.get("feeds") or [], list, "feeds"))
+    discovery_raw = data.get("discovery") or {}
+    _require_type(discovery_raw, dict, "discovery")
+    discovery_queries = [str(q) for q in (discovery_raw.get("queries") or [])]
+
     logger.debug(
         "Loaded config: %d categories, %d actors, %d topics, %d recipients",
         len(categories),
@@ -267,6 +294,8 @@ def load_settings(
         topics=topics,
         report=report,
         sources=sources,
+        feeds=feeds,
+        discovery_queries=discovery_queries,
         raw=data,
     )
 
@@ -339,6 +368,8 @@ def _main() -> int:
         f"keywords   : {len(settings.relevance_keywords)} include / "
         f"{len(settings.relevance_exclude)} exclude",
         f"sources    : {', '.join(k for k, v in settings.sources.items() if v) or '(none enabled)'}",
+        f"feeds      : {len(settings.feeds)} RSS feed(s)",
+        f"discovery  : {len(settings.discovery_queries)} keyword query(ies)",
         f"recipients : {len(settings.report.recipients)} configured",
         "",
         "=== Secrets present in environment ===",

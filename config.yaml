@@ -102,7 +102,7 @@ topics:
   - inference and performance
   - competitive positioning
 
-# Which collectors to run (wired up in Phase 2). Scraping is last-resort (spec BF-01).
+# Which collectors to run. Scraping is last-resort (spec BF-01).
 sources:
   rss: true
   hackernews: true
@@ -110,6 +110,29 @@ sources:
   googlenews: true
   gnews: true
   scraping: false
+
+# RSS feeds — tech media + official actor blogs (BF-01). `actor` is optional
+# attribution (set it for a company's own blog). VERIFY these URLs at startup:
+# feeds move, and a dead feed just logs + yields nothing (graceful degradation).
+feeds:
+  - {name: TechCrunch, url: "https://techcrunch.com/feed/"}
+  - {name: VentureBeat, url: "https://venturebeat.com/feed/"}
+  - {name: The Verge, url: "https://www.theverge.com/rss/index.xml"}
+  - {name: Ars Technica, url: "https://feeds.arstechnica.com/arstechnica/index"}
+  - {name: OpenAI Blog, url: "https://openai.com/blog/rss.xml", actor: OpenAI}
+  - {name: Google AI Blog, url: "https://blog.google/technology/ai/rss/", actor: Google Gemini}
+  - {name: Hugging Face Blog, url: "https://huggingface.co/blog/feed.xml"}
+
+# Keyword queries for news discovery (Google News RSS + GNews) and Hacker News.
+# Keep the list small — GNews free tier is 100 requests/day.
+discovery:
+  queries:
+    - "OpenAI"
+    - "Anthropic Claude"
+    - "Mistral AI"
+    - "AI agents"
+    - "LLM enterprise"
+    - "AI SaaS funding"
 
 # Report delivery (BF-06). Recipient emails are non-secret; Gmail credentials are.
 report:

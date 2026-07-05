@@ -1,0 +1,28 @@
+{
+  "data": {
+    "posts": {
+      "edges": [
+        {
+          "node": {
+            "id": "1",
+            "name": "AgentForge",
+            "tagline": "Build AI agents without code",
+            "url": "https://www.producthunt.com/posts/agentforge",
+            "website": "https://agentforge.example.com",
+            "createdAt": "2026-07-03T07:00:00Z"
+          }
+        },
+        {
+          "node": {
+            "id": "2",
+            "name": "PromptDeck",
+            "tagline": "Manage and version your LLM prompts",
+            "url": "https://www.producthunt.com/posts/promptdeck",
+            "website": null,
+            "createdAt": "2026-07-03T08:15:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

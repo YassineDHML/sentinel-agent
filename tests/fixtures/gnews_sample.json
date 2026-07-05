@@ -1,0 +1,23 @@
+{
+  "totalArticles": 2,
+  "articles": [
+    {
+      "title": "Mistral AI unveils enterprise platform",
+      "description": "The French startup announced a new B2B offering. [truncated snippet...]",
+      "content": "The French startup announced a new B2B offering. This content is truncated by GNews free tier... [1234 chars]",
+      "url": "https://example-news.com/mistral-enterprise",
+      "image": "https://example-news.com/img/mistral.jpg",
+      "publishedAt": "2026-07-04T11:00:00Z",
+      "source": {"name": "Example News", "url": "https://example-news.com"}
+    },
+    {
+      "title": "AI SaaS funding hits record",
+      "description": "Investment in AI tooling startups surged this quarter. [truncated snippet...]",
+      "content": "Investment in AI tooling startups surged... [truncated]",
+      "url": "https://example-news.com/ai-funding-record",
+      "image": null,
+      "publishedAt": "2026-07-04T13:45:00Z",
+      "source": {"name": "Example News", "url": "https://example-news.com"}
+    }
+  ]
+}

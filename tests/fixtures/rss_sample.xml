@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Sample Tech Feed</title>
+    <link>https://example.com</link>
+    <description>Sample feed for tests</description>
+    <item>
+      <title>OpenAI launches new model</title>
+      <link>https://example.com/openai-new-model</link>
+      <description>OpenAI announced a new flagship model today.</description>
+      <pubDate>Mon, 30 Jun 2026 09:00:00 GMT</pubDate>
+      <guid>https://example.com/openai-new-model</guid>
+    </item>
+    <item>
+      <title>Anthropic raises funding round</title>
+      <link>https://example.com/anthropic-funding</link>
+      <description>Anthropic closed a large financing round.</description>
+      <pubDate>Tue, 01 Jul 2026 12:30:00 GMT</pubDate>
+      <guid>https://example.com/anthropic-funding</guid>
+    </item>
+    <item>
+      <title>Entry with no link should be skipped</title>
+      <description>This item has no link element.</description>
+      <pubDate>Wed, 02 Jul 2026 08:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

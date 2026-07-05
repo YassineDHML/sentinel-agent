@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>"AI agents" - Google News</title>
+    <link>https://news.google.com/</link>
+    <item>
+      <title>AI agents go mainstream in enterprise - TechCrunch</title>
+      <link>https://news.google.com/rss/articles/CBMiabc123?oc=5</link>
+      <pubDate>Wed, 02 Jul 2026 14:00:00 GMT</pubDate>
+      <description>&lt;a href="https://news.google.com/..."&gt;AI agents go mainstream&lt;/a&gt;</description>
+      <source url="https://techcrunch.com">TechCrunch</source>
+    </item>
+    <item>
+      <title>New agent framework released - VentureBeat</title>
+      <link>https://news.google.com/rss/articles/CBMidef456?oc=5</link>
+      <pubDate>Thu, 03 Jul 2026 10:15:00 GMT</pubDate>
+      <description>&lt;a href="https://news.google.com/..."&gt;New agent framework&lt;/a&gt;</description>
+      <source url="https://venturebeat.com">VentureBeat</source>
+    </item>
+  </channel>
+</rss>
