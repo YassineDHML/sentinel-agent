@@ -68,6 +68,21 @@ class ArticleRepository:
             query = query.limit(limit)
         return self.db.execute(query).data or []
 
+    def list_by_week(self, start_iso: str, end_iso: str) -> list[Row]:
+        """Return articles collected within ``[start_iso, end_iso)`` (a week's span).
+
+        Callers derive the ISO datetime bounds (e.g. from
+        :func:`sentinel.analyze.trends.iso_week_of`'s Monday-of-week helper) since
+        the ``articles`` table has no ``week`` column of its own.
+        """
+        query = (
+            self.db.table(self.TABLE)
+            .select("*")
+            .gte("collected_at", start_iso)
+            .lt("collected_at", end_iso)
+        )
+        return self.db.execute(query).data or []
+
     def mark_analyzed(self, url: str, *, summary: str, topics: list[str]) -> Row | None:
         """Persist the LLM summary + canonical topics and set ``processed = true``."""
         query = (

@@ -64,6 +64,18 @@ def prior_weeks(week_str: str, n: int) -> list[str]:
     return [iso_week_of(monday - timedelta(weeks=k)) for k in range(1, n + 1)]
 
 
+def week_bounds_iso(week_str: str) -> tuple[str, str]:
+    """Return ``(start, end)`` UTC ISO datetimes spanning ``week_str`` (Mon-Mon).
+
+    ``end`` is exclusive (the following Monday), so callers can filter with
+    ``start <= collected_at < end``.
+    """
+    monday = _week_to_monday(week_str)
+    start = datetime.combine(monday, datetime.min.time(), tzinfo=timezone.utc)
+    end = start + timedelta(weeks=1)
+    return start.isoformat(), end.isoformat()
+
+
 # --------------------------------------------------------------------------- #
 # Counting + persistence
 # --------------------------------------------------------------------------- #

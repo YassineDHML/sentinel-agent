@@ -15,6 +15,7 @@ from typing import Any
 
 from ..logging_conf import get_logger
 from .classify import parse_classify_response
+from .deep_analysis import DeepAnalysis, run_deep_analysis
 from .llm import GeminiProvider, GroqProvider, LLMClient, LLMError
 from .summarize import parse_summary_response
 
@@ -28,6 +29,8 @@ __all__ = [
     "analyze_articles",
     "parse_summary_response",
     "parse_classify_response",
+    "DeepAnalysis",
+    "run_deep_analysis",
 ]
 
 

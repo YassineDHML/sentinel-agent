@@ -29,3 +29,5 @@ Thumbs.db
 
 # Generated report artifacts (local runs)
 *.report.html
+output/*.html
+!output/.gitkeep

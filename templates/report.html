@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="{{ report_language }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ app_name }} — {{ week }}</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f4f5f7; font-family:Arial, Helvetica, sans-serif; color:#1a1a1a;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7; padding:24px 0;">
+<tr><td align="center">
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:8px; overflow:hidden;">
+
+  <!-- Header -->
+  <tr><td style="background-color:#111827; padding:24px 32px;">
+    <div style="color:#ffffff; font-size:20px; font-weight:bold;">{{ app_name }} — Weekly Strategic Intelligence</div>
+    <div style="color:#9ca3af; font-size:13px; margin-top:4px;">Week {{ week }} &middot; generated {{ generated_at }}</div>
+  </td></tr>
+
+  <!-- 1. Executive summary -->
+  <tr><td style="padding:24px 32px 8px 32px;">
+    <div style="font-size:16px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:12px;">
+      1. Executive Summary
+    </div>
+    {% if executive_summary %}
+      {% for item in executive_summary %}
+      <div style="font-size:14px; line-height:1.5; margin-bottom:10px;">
+        &bull; {{ item.text }}
+        <span style="font-size:12px; color:#6b7280;">
+          ({% for s in item.sources %}<a href="{{ s.url }}" style="color:#2563eb; text-decoration:none;">[{{ loop.index }}]</a>{% if not loop.last %} {% endif %}{% endfor %})
+        </span>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div style="font-size:13px; color:#6b7280; font-style:italic;">No executive summary available this week.</div>
+    {% endif %}
+  </td></tr>
+
+  <!-- 2. Competitive watch -->
+  <tr><td style="padding:16px 32px 8px 32px;">
+    <div style="font-size:16px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:12px;">
+      2. Competitive Watch
+    </div>
+    {% if competitive_watch %}
+      {% for entry in competitive_watch %}
+      <div style="font-size:14px; line-height:1.5; margin-bottom:10px;">
+        <strong>{{ entry.actor }}</strong> — {{ entry.highlights }}
+        <span style="font-size:12px; color:#6b7280;">
+          ({% for s in entry.sources %}<a href="{{ s.url }}" style="color:#2563eb; text-decoration:none;">[{{ loop.index }}]</a>{% if not loop.last %} {% endif %}{% endfor %})
+        </span>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div style="font-size:13px; color:#6b7280; font-style:italic;">No notable actor activity this week.</div>
+    {% endif %}
+  </td></tr>
+
+  <!-- 3. Trends detected -->
+  <tr><td style="padding:16px 32px 8px 32px;">
+    <div style="font-size:16px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:12px;">
+      3. Trends Detected
+    </div>
+
+    <div style="font-size:13px; font-weight:bold; color:#b91c1c; margin-bottom:4px;">Accelerating</div>
+    {% if trends.accelerating %}
+      {% for t in trends.accelerating %}
+      <div style="font-size:14px; margin-bottom:6px;">
+        &bull; <strong>{{ t.topic }}</strong> — {{ t.count }} article{{ 's' if t.count != 1 else '' }} this week
+        <span style="font-size:12px; color:#6b7280;">(previous weeks: {{ t.prior_counts|join(', ') }})</span>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div style="font-size:13px; color:#6b7280; font-style:italic; margin-bottom:8px;">None this week.</div>
+    {% endif %}
+
+    <div style="font-size:13px; font-weight:bold; color:#065f46; margin-top:10px; margin-bottom:4px;">New</div>
+    {% if trends.new %}
+      {% for t in trends.new %}
+      <div style="font-size:14px; margin-bottom:6px;">
+        &bull; <strong>{{ t.topic }}</strong> — {{ t.count }} article{{ 's' if t.count != 1 else '' }}, first appearance
+      </div>
+      {% endfor %}
+    {% else %}
+      <div style="font-size:13px; color:#6b7280; font-style:italic; margin-bottom:8px;">None this week.</div>
+    {% endif %}
+
+    {% if trends.ongoing %}
+    <div style="font-size:13px; font-weight:bold; color:#374151; margin-top:10px; margin-bottom:4px;">Ongoing</div>
+      {% for t in trends.ongoing %}
+      <div style="font-size:14px; margin-bottom:6px;">
+        &bull; {{ t.topic }} — {{ t.count }} article{{ 's' if t.count != 1 else '' }} (prior avg {{ '%.1f'|format(t.prior_avg) }})
+      </div>
+      {% endfor %}
+    {% endif %}
+  </td></tr>
+
+  <!-- 4. Opportunities -->
+  <tr><td style="padding:16px 32px 8px 32px;">
+    <div style="font-size:16px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:12px;">
+      4. Opportunities for Welyne
+    </div>
+    {% if opportunities %}
+      {% for item in opportunities %}
+      <div style="font-size:14px; line-height:1.5; margin-bottom:10px;">
+        &bull; {{ item.text }}
+        <span style="font-size:12px; color:#6b7280;">
+          ({% for s in item.sources %}<a href="{{ s.url }}" style="color:#2563eb; text-decoration:none;">[{{ loop.index }}]</a>{% if not loop.last %} {% endif %}{% endfor %})
+        </span>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div style="font-size:13px; color:#6b7280; font-style:italic;">No opportunities identified this week.</div>
+    {% endif %}
+  </td></tr>
+
+  <!-- 5. Sources consulted -->
+  <tr><td style="padding:16px 32px 24px 32px;">
+    <div style="font-size:16px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:12px;">
+      5. Sources Consulted
+    </div>
+    {% if sources_consulted %}
+      <div style="font-size:12px; line-height:1.7; color:#374151;">
+        {% for a in sources_consulted %}
+        <div>&bull; <a href="{{ a.url }}" style="color:#2563eb; text-decoration:none;">{{ a.title or a.url }}</a>{% if a.source %} <span style="color:#9ca3af;">({{ a.source }})</span>{% endif %}</div>
+        {% endfor %}
+      </div>
+      {% if sources_overflow %}
+      <div style="font-size:12px; color:#9ca3af; font-style:italic; margin-top:8px;">… and {{ sources_overflow }} more analyzed source{{ 's' if sources_overflow != 1 else '' }}.</div>
+      {% endif %}
+    {% else %}
+      <div style="font-size:13px; color:#6b7280; font-style:italic;">No sources recorded this week.</div>
+    {% endif %}
+  </td></tr>
+
+  <!-- Footer -->
+  <tr><td style="background-color:#f9fafb; padding:16px 32px; font-size:11px; color:#9ca3af;">
+    {{ app_name }} — automated strategic intelligence, non-commercial internship MVP. Generated automatically, no manual review.
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>
