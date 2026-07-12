@@ -14,9 +14,11 @@ app:
 
 llm:
   # NOTE: model names are configurable on purpose (spec BF-03) — versions move fast.
-  # VERIFY the exact free-tier Flash model id at startup; use only the Flash family
-  # (the Pro free tier was removed in April 2026).
-  gemini_model: gemini-2.5-flash          # primary — Flash family only
+  # Use only the Flash family (the Pro free tier was removed in April 2026).
+  # `gemini-flash-latest` is Google's rolling alias for the current stable Flash,
+  # so it won't 404 when a specific dated version is retired. Pin a dated id
+  # (e.g. gemini-3-flash) instead if you need reproducibility over auto-updates.
+  gemini_model: gemini-flash-latest       # primary — Flash family only
   groq_model: llama-3.3-70b-versatile     # fallback — token-light tasks only (12k TPM)
   batch_size: 8                            # articles per LLM call (RPM-safe batching)
 

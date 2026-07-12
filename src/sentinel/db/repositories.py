@@ -68,6 +68,15 @@ class ArticleRepository:
             query = query.limit(limit)
         return self.db.execute(query).data or []
 
+    def mark_analyzed(self, url: str, *, summary: str, topics: list[str]) -> Row | None:
+        """Persist the LLM summary + canonical topics and set ``processed = true``."""
+        query = (
+            self.db.table(self.TABLE)
+            .update({"summary": summary, "topics": topics, "processed": True})
+            .eq("url", url)
+        )
+        return _first(self.db.execute(query).data)
+
 
 class TrendRepository:
     """CRUD for the ``trends`` table (weekly topic frequencies)."""
