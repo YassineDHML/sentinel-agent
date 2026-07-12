@@ -99,6 +99,11 @@ class ReportConfig:
 
 
 @dataclass(frozen=True)
+class ProcessConfig:
+    title_similarity_threshold: float
+
+
+@dataclass(frozen=True)
 class Settings:
     """Fully validated, read-only view of ``config.yaml``."""
 
@@ -110,6 +115,7 @@ class Settings:
     relevance_exclude: list[str]
     topics: list[str]
     report: ReportConfig
+    process: ProcessConfig
     sources: dict[str, bool]
     feeds: list[Feed]
     discovery_queries: list[str]
@@ -267,6 +273,13 @@ def load_settings(
         subject_prefix=str(report_raw.get("subject_prefix", "Sentinel Weekly")),
     )
 
+    # --- process ----------------------------------------------------------- #
+    process_raw = data.get("process") or {}
+    _require_type(process_raw, dict, "process")
+    process = ProcessConfig(
+        title_similarity_threshold=float(process_raw.get("title_similarity_threshold", 0.85))
+    )
+
     # --- sources (toggles) ------------------------------------------------- #
     sources = {str(k): bool(v) for k, v in (data.get("sources") or {}).items()}
 
@@ -293,6 +306,7 @@ def load_settings(
         relevance_exclude=relevance_exclude,
         topics=topics,
         report=report,
+        process=process,
         sources=sources,
         feeds=feeds,
         discovery_queries=discovery_queries,

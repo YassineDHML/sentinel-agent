@@ -134,6 +134,13 @@ discovery:
     - "LLM enterprise"
     - "AI SaaS funding"
 
+# Processing thresholds (BF-02).
+process:
+  # Cross-source title-similarity dedup: 0..1 ratio; higher = stricter (merges
+  # fewer articles). 0.85 merges obvious near-duplicates while keeping distinct
+  # stories apart.
+  title_similarity_threshold: 0.85
+
 # Report delivery (BF-06). Recipient emails are non-secret; Gmail credentials are.
 report:
   subject_prefix: "Sentinel Weekly"
