@@ -147,4 +147,4 @@ process:
 report:
   subject_prefix: "Sentinel Weekly"
   recipients:
-    - ceo@example.com        # placeholder — replace with real recipient(s)
+    - yass.dahmoul@gmail.com        # placeholder — replace with real recipient(s)
