@@ -108,34 +108,57 @@ def test_notify_no_webhook_is_noop(monkeypatch):
     assert slack_mod.notify(_settings(), "2026-W28") is False
 
 
+class _FakePostResp:
+    def __init__(self, status=200):
+        self.status_code = status
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import requests
+
+            raise requests.HTTPError(str(self.status_code))
+
+
+class _FakePostSession:
+    def __init__(self, resp=None, error=None):
+        self._resp = resp or _FakePostResp()
+        self._error = error
+        self.calls = []
+
+    def post(self, url, json=None, **kw):
+        self.calls.append((url, json))
+        if self._error:
+            raise self._error
+        return self._resp
+
+
 def test_notify_dry_run_does_not_post(monkeypatch):
-    called = MagicMock()
-    monkeypatch.setattr(slack_mod, "http_post_json", called)
+    session = _FakePostSession()
+    monkeypatch.setattr(slack_mod, "get_session", lambda: session)
     ok = slack_mod.notify(_settings(), "2026-W28", dry_run=True, webhook_url="https://hook")
     assert ok is True
-    called.assert_not_called()
+    assert session.calls == []  # nothing posted in dry-run
 
 
 def test_notify_posts_to_webhook(monkeypatch):
-    captured = {}
-
-    def fake_post(url, payload, **kw):
-        captured["url"] = url
-        captured["payload"] = payload
-        return {}
-
-    monkeypatch.setattr(slack_mod, "http_post_json", fake_post)
+    session = _FakePostSession()
+    monkeypatch.setattr(slack_mod, "get_session", lambda: session)
     ok = slack_mod.notify(_settings(), "2026-W28", webhook_url="https://hooks.slack.com/x",
                           highlights=["big news"])
     assert ok is True
-    assert captured["url"] == "https://hooks.slack.com/x"
-    assert "big news" in captured["payload"]["text"]
+    url, payload = session.calls[0]
+    assert url == "https://hooks.slack.com/x"
+    assert "big news" in payload["text"]
+
+
+def test_notify_does_not_parse_response_body(monkeypatch):
+    # Slack replies with plain "ok" (not JSON); notify must not try to parse it.
+    session = _FakePostSession(resp=_FakePostResp(200))  # no .json() method at all
+    monkeypatch.setattr(slack_mod, "get_session", lambda: session)
+    assert slack_mod.notify(_settings(), "2026-W28", webhook_url="https://hook") is True
 
 
 def test_notify_post_failure_returns_false(monkeypatch):
-    def boom(url, payload, **kw):
-        raise RuntimeError("network down")
-
-    monkeypatch.setattr(slack_mod, "http_post_json", boom)
-    ok = slack_mod.notify(_settings(), "2026-W28", webhook_url="https://hook")
-    assert ok is False  # optional channel: failure never raises
+    session = _FakePostSession(error=RuntimeError("network down"))
+    monkeypatch.setattr(slack_mod, "get_session", lambda: session)
+    assert slack_mod.notify(_settings(), "2026-W28", webhook_url="https://hook") is False

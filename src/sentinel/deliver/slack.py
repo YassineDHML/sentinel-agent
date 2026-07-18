@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..config import get_secret
-from ..collect.base import http_post_json
+from ..collect.base import DEFAULT_TIMEOUT, get_session
 from ..logging_conf import get_logger
 
 logger = get_logger("deliver.slack")
@@ -63,7 +63,10 @@ def notify(
         return True
 
     try:
-        http_post_json(url, payload)
+        # Slack incoming webhooks reply with the plain text "ok" (NOT JSON), so we
+        # check the HTTP status and must not try to parse the body as JSON.
+        response = get_session().post(url, json=payload, timeout=DEFAULT_TIMEOUT)
+        response.raise_for_status()
     except Exception as exc:  # noqa: BLE001 - Slack is optional; never break the run
         logger.error("Slack post failed (continuing): %s", exc)
         return False
