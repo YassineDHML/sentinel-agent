@@ -124,6 +124,8 @@ def generate_report(
     *,
     week: str | None = None,
     client: Any | None = None,
+    deep_analysis: DeepAnalysis | None = None,
+    compute_deep: bool = True,
     output_dir: Path | str | None = None,
     generated_at: str | None = None,
 ) -> Path:
@@ -158,7 +160,11 @@ def generate_report(
     trend_statuses = compute_trend_statuses(trend_repo, week=week)
     digest = build_trend_digest(trend_statuses, week=week)
 
-    deep_analysis = run_deep_analysis(articles, digest, settings, client=client)
+    # The caller (e.g. the pipeline) may have already run the Gemini-only deep
+    # analysis — pass it via deep_analysis / compute_deep=False to avoid a second
+    # heavy LLM call. Left to its own devices, this function computes it.
+    if deep_analysis is None and compute_deep:
+        deep_analysis = run_deep_analysis(articles, digest, settings, client=client)
     if deep_analysis is None:
         logger.warning("Deep analysis unavailable this week; report will omit sections 1/2/4.")
 
