@@ -7,6 +7,8 @@ tracks those trends over time in a persistent Supabase database, renders an HTML
 and emails it — all on a free GitHub Actions cron.
 
 Full specification (source of truth): [`docs/cahier_des_charges_sentinel.md`](docs/cahier_des_charges_sentinel.md).
+**New to the codebase? Start with [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — a
+detailed walkthrough of how the whole system works.
 
 > Non-commercial internship MVP. 100% free tier / open source. No paid APIs.
 
