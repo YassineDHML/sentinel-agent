@@ -217,7 +217,7 @@ def test_process_articles_persists_only_db_new(monkeypatch):
     assert result.persisted is True
     assert result.persisted_new == 1
     assert [a["url"] for a in result.articles] == ["https://a/1"]
-    # persisted rows are projected to DB columns (no snippet/content) with processed=false
+    # persisted rows carry snippet + content (now real DB columns) with processed=false
     (rows,), _ = repo.insert_many.call_args
-    assert all("snippet" not in r and "content" not in r for r in rows)
+    assert all("snippet" in r and "content" in r for r in rows)
     assert all(r["processed"] is False for r in rows)

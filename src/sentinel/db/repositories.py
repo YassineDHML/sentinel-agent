@@ -83,6 +83,11 @@ class ArticleRepository:
         )
         return self.db.execute(query).data or []
 
+    def set_content(self, url: str, content: str) -> Row | None:
+        """Cache fetched full-text ``content`` for an article, so it isn't re-fetched."""
+        query = self.db.table(self.TABLE).update({"content": content}).eq("url", url)
+        return _first(self.db.execute(query).data)
+
     def mark_analyzed(self, url: str, *, summary: str, topics: list[str]) -> Row | None:
         """Persist the LLM summary + canonical topics and set ``processed = true``."""
         query = (

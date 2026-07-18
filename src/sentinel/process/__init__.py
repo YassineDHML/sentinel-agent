@@ -37,9 +37,10 @@ __all__ = [
     "ProcessResult",
 ]
 
-# Columns that actually exist on the articles table (schema.sql). Our normalized
-# article dict also carries snippet/content, which are NOT persisted here.
-_DB_COLUMNS = ("url", "title", "source", "actor", "published_at", "collected_at")
+# Columns on the articles table (schema.sql) that map directly from a normalized
+# article dict. `snippet` is stored always (cheap fallback text); `content` is
+# usually None at collection time and filled in lazily when full text is fetched.
+_DB_COLUMNS = ("url", "title", "source", "actor", "published_at", "collected_at", "snippet", "content")
 
 
 @dataclass

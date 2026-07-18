@@ -2,10 +2,11 @@
 
     python -m sentinel.analyze [--limit N] [--no-fulltext] [--no-persist]
 
-Pulls up to N articles with processed=false from Supabase, optionally enriches
-each with fetched full text (the articles table stores only metadata + summary,
-not body text), summarizes + classifies them, prints the results, and persists
-summary/topics back with processed=true.
+Pulls up to N articles with processed=false from Supabase. Each row already
+carries the stored snippet (and content, if previously fetched). Missing content
+is fetched once and cached back to the DB, so re-runs don't re-hit the source
+(avoids repeated rate-limit failures). Then summarizes + classifies, prints the
+results, and persists summary/topics back with processed=true.
 
 Requires SUPABASE_URL/SUPABASE_KEY and GEMINI_API_KEY (GROQ_API_KEY optional).
 """
@@ -52,8 +53,16 @@ def _main() -> int:
     if not args.no_fulltext:
         from ..collect.fulltext import fetch_fulltext
 
+        fetched = 0
         for a in articles:
-            a["content"] = fetch_fulltext(a["url"])
+            if a.get("content"):
+                continue  # already cached in the DB; no re-fetch
+            text = fetch_fulltext(a["url"])
+            if text:
+                a["content"] = text
+                repo.set_content(a["url"], text)  # cache for future runs
+                fetched += 1
+        logger.info("Full text: %d fetched+cached, rest used stored snippet/content.", fetched)
 
     analyzed = analyze_articles(
         articles, settings, repo=None if args.no_persist else repo

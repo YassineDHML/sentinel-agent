@@ -15,9 +15,15 @@ create table if not exists articles (
     topics        text[],                 -- canonical tags assigned by the LLM (BF-03)
     published_at  timestamptz,
     collected_at  timestamptz default now(),
+    snippet       text,                   -- short description from the source (RSS/GNews)
+    content       text,                   -- full article text (fetched lazily, then cached)
     summary       text,                   -- LLM-generated summary
     processed     boolean default false
 );
+
+-- Migration for databases created before snippet/content existed (idempotent).
+alter table articles add column if not exists snippet text;
+alter table articles add column if not exists content text;
 
 create index if not exists idx_articles_processed    on articles (processed);
 create index if not exists idx_articles_published_at  on articles (published_at desc);

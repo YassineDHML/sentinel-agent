@@ -81,6 +81,20 @@ def test_article_insert_many_reports_only_new_rows():
     assert len(inserted) == 2
 
 
+def test_article_set_content_updates_by_url():
+    db, client = _db_with_mock_client()
+    client.table.return_value.update.return_value.eq.return_value.execute.return_value = _resp(
+        [{"url": "https://a.com/x", "content": "full text"}]
+    )
+    repo = ArticleRepository(db)
+
+    row = repo.set_content("https://a.com/x", "full text")
+    assert row["content"] == "full text"
+    args, _ = client.table.return_value.update.call_args
+    assert args[0] == {"content": "full text"}
+    client.table.return_value.update.return_value.eq.assert_called_with("url", "https://a.com/x")
+
+
 def test_article_insert_many_empty_is_noop():
     db, client = _db_with_mock_client()
     repo = ArticleRepository(db)
