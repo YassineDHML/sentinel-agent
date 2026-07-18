@@ -76,6 +76,27 @@ def test_extract_json_object_raises_on_garbage():
         extract_json_object("no json here")
 
 
+def test_extract_json_object_merges_concatenated_objects():
+    # Observed in the wild: Gemini emitting several objects back-to-back
+    text = '{"1": "first summary"}\n{"2": "second summary"}'
+    assert extract_json_object(text) == {"1": "first summary", "2": "second summary"}
+
+
+def test_unparseable_batch_is_reasked_once_then_succeeds():
+    provider = FakeProvider("gemini", ["<<not json>>", '{"1": "recovered"}'])
+    client = LLMClient(provider, batch_size=10)
+    out = client.summarize_batch([_art("u1", "a")])
+    assert out == {"u1": "recovered"}
+    assert len(provider.calls) == 2  # one re-ask
+
+
+def test_unparseable_batch_twice_is_skipped():
+    provider = FakeProvider("gemini", ["<<junk>>", "<<junk again>>"])
+    client = LLMClient(provider, batch_size=10)
+    assert client.summarize_batch([_art("u1", "a")]) == {}
+    assert len(provider.calls) == 2  # asked, re-asked, then gave up
+
+
 def test_parse_summary_ignores_unknown_indices():
     out = parse_summary_response('{"1": "good", "9": "orphan"}', {"1": "u1"})
     assert out == {"u1": "good"}

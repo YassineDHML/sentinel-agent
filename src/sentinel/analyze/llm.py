@@ -197,6 +197,22 @@ class LLMClient:
     def _batches(self, articles: list[dict]) -> list[list[dict]]:
         return [articles[i : i + self.batch_size] for i in range(0, len(articles), self.batch_size)]
 
+    PARSE_RETRIES = 1  # re-ask a batch once if its response is unparseable
+
+    def _generate_parsed(self, prompt: str, parse: Any) -> Any:
+        """Generate + parse, re-asking once on an unparseable response."""
+        last_exc: ValueError | None = None
+        for attempt in range(self.PARSE_RETRIES + 1):
+            text = self.generate(prompt)
+            try:
+                return parse(text)
+            except ValueError as exc:
+                last_exc = exc
+                if attempt < self.PARSE_RETRIES:
+                    logger.warning("Unparseable LLM response (%s); re-asking once.", exc)
+        assert last_exc is not None
+        raise last_exc
+
     def summarize_batch(self, articles: list[dict]) -> dict[str, str]:
         """Return ``{url: summary}`` for the given articles (batched calls)."""
         results: dict[str, str] = {}
@@ -206,7 +222,8 @@ class LLMClient:
             index_to_url = {str(i): a["url"] for i, a in items}
             prompt = build_summary_prompt(items)
             try:
-                results.update(parse_summary_response(self.generate(prompt), index_to_url))
+                results.update(self._generate_parsed(
+                    prompt, lambda text: parse_summary_response(text, index_to_url)))
             except (LLMError, ValueError) as exc:
                 logger.error("Summary batch %d/%d failed; skipping: %s", n, len(batches), exc)
         logger.info("Summarized %d/%d article(s).", len(results), len(articles))
@@ -221,7 +238,9 @@ class LLMClient:
             index_to_url = {str(i): a["url"] for i, a in items}
             prompt = build_classify_prompt(items, canonical_tags)
             try:
-                results.update(parse_classify_response(self.generate(prompt), index_to_url, canonical_tags))
+                results.update(self._generate_parsed(
+                    prompt,
+                    lambda text: parse_classify_response(text, index_to_url, canonical_tags)))
             except (LLMError, ValueError) as exc:
                 logger.error("Classify batch %d/%d failed; skipping: %s", n, len(batches), exc)
         logger.info("Classified %d/%d article(s).", len(results), len(articles))

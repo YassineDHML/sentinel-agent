@@ -30,7 +30,35 @@ def extract_json_object(text: str) -> dict[str, Any]:
     try:
         obj = json.loads(cleaned[start : end + 1])
     except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid JSON in LLM response: {exc}") from exc
+        # LLMs occasionally emit several concatenated objects ({...}\n{...});
+        # "Extra data" is json's signature for that — merge them instead of failing.
+        if "Extra data" in exc.msg:
+            obj = _merge_concatenated_objects(cleaned[start : end + 1])
+        else:
+            raise ValueError(f"invalid JSON in LLM response: {exc}") from exc
     if not isinstance(obj, dict):
         raise ValueError("expected a JSON object at the top level")
     return obj
+
+
+def _merge_concatenated_objects(text: str) -> dict[str, Any]:
+    """Decode back-to-back JSON objects and merge them into one dict."""
+    decoder = json.JSONDecoder()
+    merged: dict[str, Any] = {}
+    idx, n = 0, len(text)
+    while idx < n:
+        # skip to the next object start
+        brace = text.find("{", idx)
+        if brace == -1:
+            break
+        try:
+            piece, consumed = decoder.raw_decode(text, brace)
+        except json.JSONDecodeError:
+            idx = brace + 1
+            continue
+        if isinstance(piece, dict):
+            merged.update(piece)
+        idx = consumed
+    if not merged:
+        raise ValueError("no parseable JSON objects in LLM response")
+    return merged
