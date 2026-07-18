@@ -209,7 +209,7 @@ def test_extract_main_text_strips_boilerplate():
 def test_fetch_fulltext_success(monkeypatch):
     monkeypatch.setattr(fulltext, "_robots_allowed", lambda url: True)
     monkeypatch.setattr(fulltext, "_sleep", lambda s: None)
-    monkeypatch.setattr(fulltext, "http_get_text", lambda url, **kw: _fx("article_sample.html"))
+    monkeypatch.setattr(fulltext, "_fetch_html", lambda url, host: _fx("article_sample.html"))
     text = fulltext.fetch_fulltext("https://example.com/a", delay=0)
     assert text and "flagship model" in text
 
@@ -222,5 +222,86 @@ def test_fetch_fulltext_robots_disallow_returns_none(monkeypatch):
 def test_fetch_fulltext_too_short_returns_none(monkeypatch):
     monkeypatch.setattr(fulltext, "_robots_allowed", lambda url: True)
     monkeypatch.setattr(fulltext, "_sleep", lambda s: None)
-    monkeypatch.setattr(fulltext, "http_get_text", lambda url, **kw: "<html><body><p>tiny</p></body></html>")
+    monkeypatch.setattr(fulltext, "_fetch_html", lambda url, host: "<html><body><p>tiny</p></body></html>")
     assert fulltext.fetch_fulltext("https://example.com/a", delay=0) is None
+
+
+# --- 429 handling + per-host circuit breaker --------------------------------- #
+class _FakeResp:
+    def __init__(self, status=200, text="", headers=None):
+        self.status_code = status
+        self.text = text
+        self.headers = headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400 and self.status_code != 429:
+            import requests
+
+            raise requests.HTTPError(str(self.status_code))
+
+
+class _FakeSession:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = []
+
+    def get(self, url, **kw):
+        self.calls.append(url)
+        return self._responses[min(len(self.calls) - 1, len(self._responses) - 1)]
+
+
+def _reset_fulltext_state():
+    fulltext._tripped_hosts.clear()
+    fulltext._host_429_count.clear()
+    fulltext._robots_cache.clear()
+    fulltext._last_fetch_at.clear()
+
+
+def test_fetch_fulltext_retries_on_429_then_succeeds(monkeypatch):
+    _reset_fulltext_state()
+    monkeypatch.setattr(fulltext, "_robots_allowed", lambda url: True)
+    monkeypatch.setattr(fulltext, "_sleep", lambda s: None)
+    session = _FakeSession([_FakeResp(429), _FakeResp(200, _fx("article_sample.html"))])
+    monkeypatch.setattr(fulltext, "get_session", lambda: session)
+    text = fulltext.fetch_fulltext("https://ex.com/a", delay=0)
+    assert text and "flagship model" in text
+    assert len(session.calls) == 2  # one retry after the 429
+
+
+def test_fetch_fulltext_gives_up_after_max_429(monkeypatch):
+    _reset_fulltext_state()
+    monkeypatch.setattr(fulltext, "_robots_allowed", lambda url: True)
+    monkeypatch.setattr(fulltext, "_sleep", lambda s: None)
+    session = _FakeSession([_FakeResp(429)])  # always rate-limited
+    monkeypatch.setattr(fulltext, "get_session", lambda: session)
+    assert fulltext.fetch_fulltext("https://ex.com/a", delay=0) is None
+    assert len(session.calls) == fulltext.MAX_429_RETRIES + 1
+
+
+def test_fetch_fulltext_circuit_breaker_trips_and_skips_host(monkeypatch):
+    _reset_fulltext_state()
+    monkeypatch.setattr(fulltext, "_robots_allowed", lambda url: True)
+    monkeypatch.setattr(fulltext, "_sleep", lambda s: None)
+    session = _FakeSession([_FakeResp(429)])
+    monkeypatch.setattr(fulltext, "get_session", lambda: session)
+    for i in range(fulltext.HOST_TRIP_THRESHOLD):
+        assert fulltext.fetch_fulltext(f"https://vb.com/{i}", delay=0) is None
+    assert "vb.com" in fulltext._tripped_hosts
+    calls_before = len(session.calls)
+    # host tripped -> subsequent fetch returns immediately, no new HTTP request
+    assert fulltext.fetch_fulltext("https://vb.com/another", delay=0) is None
+    assert len(session.calls) == calls_before
+
+
+def test_fetch_fulltext_honors_retry_after_header(monkeypatch):
+    _reset_fulltext_state()
+    monkeypatch.setattr(fulltext, "_robots_allowed", lambda url: True)
+    waits = []
+    monkeypatch.setattr(fulltext, "_sleep", lambda s: waits.append(s))
+    session = _FakeSession(
+        [_FakeResp(429, headers={"Retry-After": "5"}), _FakeResp(200, _fx("article_sample.html"))]
+    )
+    monkeypatch.setattr(fulltext, "get_session", lambda: session)
+    text = fulltext.fetch_fulltext("https://ex.com/a", delay=0)
+    assert text and "flagship model" in text
+    assert waits == [5.0]  # honored the numeric Retry-After
