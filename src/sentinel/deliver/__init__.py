@@ -1,4 +1,6 @@
-"""Delivery layer: email (Gmail SMTP) + Slack webhook.
+"""Delivery layer: email (Gmail SMTP) + optional Slack webhook (spec BF-06)."""
 
-Not implemented yet — added in Phase 7.
-"""
+from .email import send_report
+from .slack import notify
+
+__all__ = ["send_report", "notify"]
