@@ -1,0 +1,62 @@
+name: Sentinel weekly report
+
+on:
+  schedule:
+    # GitHub cron is UTC-only. 06:00 UTC every Monday lands at 07:00 CET (winter)
+    # / 08:00 CEST (summer) — Monday morning French time all year round.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}   # manual run button in the Actions tab
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sentinel-weekly
+  cancel-in-progress: false   # never interrupt an in-flight weekly run
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Run pipeline
+        # Secrets are injected as env vars; the app reads them via config.get_secret.
+        # No secret VALUES appear here — only references to GitHub Secrets.
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GNEWS_API_KEY: ${{ secrets.GNEWS_API_KEY }}
+          PRODUCTHUNT_TOKEN: ${{ secrets.PRODUCTHUNT_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          # pipefail so the pipeline's exit code survives the `tee`
+          set -o pipefail
+          python -m sentinel.pipeline --limit 25 2>&1 | tee run.log
+
+      - name: Upload run log + report
+        if: always()   # keep logs even when the run fails (e.g. delivery error)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-run-${{ github.run_id }}
+          path: |
+            run.log
+            output/*.html
+          if-no-files-found: warn
+          retention-days: 30
