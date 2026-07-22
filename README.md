@@ -133,7 +133,59 @@ report* (or *Supabase keep-alive*) → **Run workflow**. Use this to smoke-test 
 deployment without waiting for the cron. Download the run log/report from the run's
 **Artifacts** section.
 
-## Project layout
+## Configuration reference
 
-See [`CLAUDE.md`](CLAUDE.md) for the conventions/architecture overview and
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full system walkthrough.
+All non-secret settings live in [`config.yaml`](config.yaml):
+
+| Key | What it controls |
+|---|---|
+| `app.name` / `report_language` / `timezone` | report title, narrative language (`en`/`fr`), display timezone |
+| `app.weeks_history` | how many prior weeks the trend engine compares against (default 4) |
+| `app.log_level` | logging verbosity (env `LOG_LEVEL` overrides) |
+| `llm.gemini_model` / `groq_model` | model IDs — **never hardcoded**; `gemini-flash-latest` is a safe rolling alias |
+| `llm.batch_size` | articles per LLM call (RPM-safe batching, default 8) |
+| `categories` / `actors` | monitored sector categories and companies (+ `aliases` for matching) |
+| `relevance.keywords` / `exclude` | in-scope keyword filter / exclusion terms |
+| `topics` | the ~20 canonical tags the LLM must classify into (closed list) |
+| `sources.*` | per-collector on/off toggles |
+| `feeds` | RSS feed list (media + vendor blogs; optional `actor` attribution) |
+| `discovery.queries` | keyword queries for Google News / GNews / Hacker News |
+| `process.title_similarity_threshold` | cross-source dedup strictness (0–1, default 0.85) |
+| `report.subject_prefix` / `recipients` | email subject prefix and recipient list |
+
+Secrets are **never** in this file — they come from the environment (`.env` locally,
+GitHub Secrets in CI). See `.env.example` and the [Deployment](#deployment-github-actions)
+secrets checklist.
+
+## Free-tier quotas (what the design respects)
+
+| Service | Limit | How the code stays under it |
+|---|---|---|
+| Gemini Flash | ~10–15 req/min, ~1500/day | batching (`llm.batch_size`), `--limit` cap per run |
+| Groq (llama-3.3-70b) | **12k tokens/min**, 30 req/min | fallback for light tasks only; history sent as a compressed digest, never raw |
+| GNews | 100 req/day, 10 articles/req, snippets | discovery-only (~6 queries/run, 1 req/sec) |
+| Supabase | 500 MB, **pauses after 7 idle days** | keep-alive workflow + retry/backoff on the client |
+| Gmail SMTP | normal account sending limits | one email per week |
+
+All of the above are free tiers — **no card, no dollar cost**; the only budget is
+rate/quota, and a weekly run uses a tiny fraction of it.
+
+## Troubleshooting
+
+| Symptom | Likely cause / fix |
+|---|---|
+| `ConfigError: Missing required secret …` | that env var isn't set — add it to `.env` (local) or GitHub Secrets (CI) |
+| Gemini `404 … model is no longer available` | the pinned model id was retired — set `llm.gemini_model: gemini-flash-latest` |
+| Report emailed but sections 1/2/4 empty | deep analysis was skipped (Gemini down → Groq-only) or no articles were analyzed this week; check the run log |
+| `Report … 0 analyzed` | nothing analyzed for this week yet — raise `--limit`, or the analyze stage didn't run |
+| Many `429 Too Many Requests` in full-text | a host is rate-limiting datacenter IPs; the circuit breaker skips it after a few tries — harmless, snippet fallback is used |
+| Slack `Expecting value: line 1 column 1` | (fixed) Slack returns plain `ok`, not JSON — update to latest |
+| Supabase timeout on first weekly run | project was paused; the retry/backoff usually recovers — ensure the keep-alive workflow is enabled |
+| `pytest` needs a real key | it shouldn't — tests are hermetic (`tests/conftest.py` strips secrets); mock at the wrapper boundary |
+
+## Project layout & further reading
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — full system walkthrough (start here).
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — handoff guide, extension recipes, golden rules.
+- [`CLAUDE.md`](CLAUDE.md) — conventions/architecture summary for AI-assisted edits.
+- [`docs/cahier_des_charges_sentinel.md`](docs/cahier_des_charges_sentinel.md) — the spec (source of truth).

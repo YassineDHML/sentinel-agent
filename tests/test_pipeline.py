@@ -235,6 +235,51 @@ def test_slack_failure_never_fatal(monkeypatch, tmp_path):
     assert any("slack" in d.lower() for d in result.degradations)
 
 
+def test_no_llm_skips_analysis_but_report_still_ships(monkeypatch, tmp_path):
+    monkeypatch.setattr("sentinel.report.builder.DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(pipe, "fetch_fulltext", lambda url: "x " * 200)
+    repo = MemoryArticleRepo()
+    result = pipe.run_pipeline(
+        _settings(), dry_run=False, week="2026-W28",
+        collectors={"rss": lambda: list(RAW_BATCH)},
+        llm_client=None, deep_available=False,           # no LLM available at all
+        article_repo=repo, trend_repo=MemoryTrendRepo(), report_repo=MagicMock(),
+        emailer=MagicMock(return_value=True), slacker=MagicMock(return_value=True),
+    )
+    assert result.ok is True
+    assert result.stage_names() == EXPECTED_ORDER          # every stage still ran
+    assert all(not r.get("summary") for r in repo.rows.values())  # analysis skipped
+    assert result.report_path.exists()                     # report + delivery still happen
+
+
+# --------------------------------------------------------------------------- #
+# LLM tiering (_build_llm)
+# --------------------------------------------------------------------------- #
+def test_build_llm_gemini_is_primary_deep_on(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    result = pipe.PipelineResult()
+    client, deep = pipe._build_llm(_settings(), result)
+    assert deep is True
+    assert client.primary.name == "gemini"
+    assert result.degradations == []
+
+
+def test_build_llm_groq_only_deep_off(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "k")   # no GEMINI (stripped by conftest)
+    result = pipe.PipelineResult()
+    client, deep = pipe._build_llm(_settings(), result)
+    assert deep is False                        # deep analysis never runs on Groq
+    assert client.primary.name == "groq"
+    assert any("gemini unavailable" in d.lower() for d in result.degradations)
+
+
+def test_build_llm_no_keys_returns_none(monkeypatch):
+    result = pipe.PipelineResult()              # all secrets stripped by conftest
+    client, deep = pipe._build_llm(_settings(), result)
+    assert client is None and deep is False
+    assert any("no llm" in d.lower() for d in result.degradations)
+
+
 def test_since_filter_drops_older_articles(monkeypatch, tmp_path):
     monkeypatch.setattr("sentinel.report.builder.DEFAULT_OUTPUT_DIR", tmp_path)
     old = _raw("https://a.com/old", "OpenAI old news")
