@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rapport d'avancement — Projet Sentinel</title>
+<style>
+  :root {
+    --ink: #1f2937;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --accent: #1e3a8a;
+    --accent-soft: #eff6ff;
+    --green: #047857;
+    --green-soft: #ecfdf5;
+    --amber: #b45309;
+    --amber-soft: #fffbeb;
+    --grey: #6b7280;
+    --grey-soft: #f3f4f6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+    color: var(--ink);
+    line-height: 1.55;
+    background: #f4f5f7;
+  }
+
+  .page {
+    max-width: 820px;
+    margin: 24px auto;
+    background: #fff;
+    padding: 48px 56px;
+    box-shadow: 0 1px 6px rgba(0,0,0,.08);
+  }
+
+  header.doc {
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: 20px;
+    margin-bottom: 28px;
+  }
+  header.doc .eyebrow {
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  header.doc h1 {
+    margin: 6px 0 2px;
+    font-size: 27px;
+    color: var(--ink);
+  }
+  header.doc .subtitle { color: var(--muted); font-size: 15px; }
+
+  .meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 32px;
+    margin-top: 18px;
+    font-size: 14px;
+  }
+  .meta div { color: var(--ink); }
+  .meta .k { color: var(--muted); }
+
+  h2 {
+    font-size: 18px;
+    color: var(--accent);
+    margin: 30px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+  }
+  p { margin: 10px 0; font-size: 15px; }
+
+  .callout {
+    background: var(--accent-soft);
+    border-left: 4px solid var(--accent);
+    padding: 16px 20px;
+    border-radius: 4px;
+    margin: 18px 0;
+    font-size: 15px;
+  }
+
+  ul { margin: 10px 0; padding-left: 22px; }
+  li { margin: 6px 0; font-size: 15px; }
+
+  /* Progress bar */
+  .progress-wrap { margin: 16px 0 8px; }
+  .progress-track {
+    height: 14px; background: var(--grey-soft); border-radius: 8px; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; width: 85%;
+    background: linear-gradient(90deg, #1e3a8a, #2563eb);
+  }
+  .progress-label { font-size: 13px; color: var(--muted); margin-top: 6px; }
+
+  /* Milestones */
+  table.milestones { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  table.milestones td { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; vertical-align: middle; }
+  table.milestones td.status { text-align: right; white-space: nowrap; }
+  .badge {
+    display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 10px;
+    border-radius: 999px;
+  }
+  .b-done { color: var(--green); background: var(--green-soft); }
+  .b-prog { color: var(--amber); background: var(--amber-soft); }
+  .b-next { color: var(--grey); background: var(--grey-soft); }
+
+  /* Key figures */
+  .cards {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 14px 0;
+  }
+  .card {
+    border: 1px solid var(--line); border-radius: 8px; padding: 16px; text-align: center;
+  }
+  .card .num { font-size: 24px; font-weight: 800; color: var(--accent); }
+  .card .lbl { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+
+  footer.doc {
+    margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line);
+    font-size: 13px; color: var(--muted);
+  }
+  .sign { margin-top: 22px; font-size: 15px; }
+  .sign strong { color: var(--ink); }
+
+  @page { size: A4; margin: 16mm; }
+  @media print {
+    body { background: #fff; }
+    .page { box-shadow: none; margin: 0; max-width: none; padding: 0; }
+    h2 { page-break-after: avoid; }
+    table.milestones, .cards, .callout { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="doc">
+    <div class="eyebrow">Welyne · Programme AI Commandos</div>
+    <h1>Projet Sentinel — Rapport d'avancement</h1>
+    <div class="subtitle">Agent de veille stratégique automatisée · Point à un mois</div>
+    <div class="meta">
+    </div>
+  </header>
+
+  <div class="callout">
+    <strong>En résumé :</strong> en un mois, le cœur de l'agent Sentinel est
+    <strong>construit, testé et déployé</strong>. Le système collecte automatiquement
+    l'actualité du secteur de l'IA pour les entreprises, la trie, l'analyse grâce à
+    l'intelligence artificielle, détecte les tendances et produit un rapport de synthèse
+    envoyé par email — le tout de manière autonome et <strong>sans aucun coût</strong>.
+    Le projet entre maintenant en phase de stabilisation avant une première démonstration.
+  </div>
+
+  <h2>1. Rappel : à quoi sert Sentinel</h2>
+  <p>
+    Suivre le marché de l'IA (concurrents, levées de fonds, nouveaux produits, tendances)
+    est aujourd'hui un travail manuel et chronophage. <strong>Sentinel automatise cette
+    veille</strong> : chaque semaine, il parcourt les sources d'actualité du secteur,
+    en extrait ce qui est pertinent, le résume et l'analyse, puis livre un rapport
+    stratégique clair — directement dans la boîte mail, sans intervention humaine.
+  </p>
+
+  <h2>2. Où en est le projet</h2>
+  <div class="progress-wrap">
+    <div class="progress-track"><div class="progress-fill"></div></div>
+    <div class="progress-label">Avancement global du MVP : ~85 % — les briques
+      essentielles sont terminées ; reste la stabilisation et la validation en conditions réelles.</div>
+  </div>
+
+  <table class="milestones">
+    <tr><td>Fondations &amp; architecture du système</td><td class="status"><span class="badge b-done">Terminé</span></td></tr>
+    <tr><td>Collecte automatique des sources d'actualité</td><td class="status"><span class="badge b-done">Terminé</span></td></tr>
+    <tr><td>Filtrage et nettoyage des données</td><td class="status"><span class="badge b-done">Terminé</span></td></tr>
+    <tr><td>Analyse par intelligence artificielle (résumés, classification)</td><td class="status"><span class="badge b-done">Terminé</span></td></tr>
+    <tr><td>Mémoire historique &amp; détection de tendances</td><td class="status"><span class="badge b-done">Terminé</span></td></tr>
+    <tr><td>Génération du rapport de synthèse</td><td class="status"><span class="badge b-done">Terminé</span></td></tr>
+    <tr><td>Envoi automatique (email + Slack)</td><td class="status"><span class="badge b-done">Terminé</span></td></tr>
+    <tr><td>Déploiement automatisé dans le cloud (exécution hebdomadaire)</td><td class="status"><span class="badge b-done">Terminé</span></td></tr>
+    <tr><td>Stabilisation &amp; documentation</td><td class="status"><span class="badge b-prog">En cours</span></td></tr>
+    <tr><td>Validation en conditions réelles</td><td class="status"><span class="badge b-next">À venir</span></td></tr>
+  </table>
+
+  <h2>3. Ce qui fonctionne déjà aujourd'hui</h2>
+  <p>Le pipeline complet a été exécuté avec succès de bout en bout. Concrètement, l'agent est capable de :</p>
+  <ul>
+    <li>collecter l'actualité depuis <strong>5 sources</strong> différentes (médias tech, Hacker News, Product Hunt, Google News, GNews)</li>
+    <li>écarter automatiquement les articles hors sujet et regrouper les doublons (une même actualité reprise par plusieurs médias)</li>
+    <li>résumer et classer chaque article pertinent par thème, à l'aide de l'IA</li>
+    <li>suivre l'évolution des sujets dans le temps et distinguer une <strong>nouvelle tendance</strong> d'une <strong>tendance en accélération</strong></li>
+    <li>produire un rapport HTML structuré (faits marquants, veille concurrentielle, tendances, opportunités, sources) et l'envoyer par email</li>
+    <li>fonctionner de façon <strong>100 % autonome</strong> dans le cloud, selon une planification hebdomadaire</li>
+  </ul>
+  <p>
+    Une garantie importante a été intégrée : chaque affirmation et chaque opportunité du
+    rapport est <strong>rattachée à ses articles sources</strong>, afin d'éviter que l'IA
+    « invente » des informations.
+  </p>
+
+  <h2>4. Quelques chiffres</h2>
+  <div class="cards">
+    <div class="card"><div class="num">5</div><div class="lbl">sources de veille</div></div>
+    <div class="card"><div class="num">~2 700</div><div class="lbl">articles traités par cycle</div></div>
+    <div class="card"><div class="num">~20</div><div class="lbl">thèmes suivis dans le temps</div></div>
+    <div class="card"><div class="num">0 €</div><div class="lbl">coût (100 % outils gratuits)</div></div>
+    <div class="card"><div class="num">1 / semaine</div><div class="lbl">rapport automatique</div></div>
+    <div class="card"><div class="num">148</div><div class="lbl">tests automatisés (fiabilité)</div></div>
+  </div>
+
+  <h2>5. Prochaines étapes</h2>
+  <ul>
+    <li>finaliser la stabilisation et la documentation du système</li>
+    <li>tester le système de bout en bout afin de valider son bon fonctionnement dans différents scénarios</li>
+    <li>laisser l'agent tourner <strong>2 semaines en autonomie</strong> pour confirmer sa fiabilité</li>
+    <li>ajuster la qualité des analyses selon vos retours</li>
+  </ul>
+
+
+  <h2>6. Conclusion</h2>
+  <p>
+    Le projet est <strong>en bonne voie et conforme au planning</strong>. La partie la plus
+    complexe — la construction et l'automatisation du pipeline complet — est derrière nous.
+    Sentinel est techniquement fonctionnel et déployé. Les prochaines semaines seront
+    consacrées à la stabilisation finale et à la documentation, avant la livraison définitive
+    du MVP.
+  </p>
+
+
+  <footer class="doc">
+    Document interne Welyne · Projet Sentinel (MVP de veille stratégique AI SaaS B2B) ·
+    Rapport d'avancement à un mois.
+  </footer>
+
+</div>
+</body>
+</html>
