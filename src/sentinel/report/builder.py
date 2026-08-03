@@ -20,7 +20,13 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from ..analyze.deep_analysis import DeepAnalysis, run_deep_analysis
-from ..analyze.trends import build_trend_digest, compute_trend_statuses, current_iso_week, week_bounds_iso
+from ..analyze.trends import (
+    DEFAULT_WEEKS_BACK,
+    build_trend_digest,
+    compute_trend_statuses,
+    current_iso_week,
+    week_bounds_iso,
+)
 from ..logging_conf import get_logger
 
 logger = get_logger("report.builder")
@@ -34,6 +40,43 @@ TEMPLATE_NAME = "report.html"
 # if a very large week is analyzed. Overflow is reported as a count, not dropped
 # silently.
 MAX_SOURCES_LISTED = 100
+
+WEEKLY_REPORT_TYPE = "weekly"
+
+
+def report_output_path(
+    period_key: str,
+    *,
+    report_type: str = WEEKLY_REPORT_TYPE,
+    request_slug: str | None = None,
+    suffix: str = "",
+    output_dir: Path | str | None = None,
+) -> Path:
+    """Local filesystem path for a rendered report.
+
+    The weekly watch keeps its historical ``output/<week>.html`` name exactly, so
+    existing files, tests and habits are undisturbed. Any other report type gets a
+    qualified name so types/requests can't overwrite each other.
+
+    Args:
+        period_key: e.g. ``"2026-W29"``, ``"2026-M07"``.
+        report_type: ``"weekly"`` (default), ``"research"``, ``"competitor"``, ...
+        request_slug: Parameterized-request identifier, when applicable.
+        suffix: Extra marker before the extension, e.g. ``"dryrun"``.
+        output_dir: Defaults to ``<repo>/output``.
+    """
+    out_dir = Path(output_dir) if output_dir else DEFAULT_OUTPUT_DIR
+    if report_type == WEEKLY_REPORT_TYPE:
+        # Historical naming, preserved exactly: <week>.html / <week>.dryrun.html
+        stem = f"{period_key}.{suffix}" if suffix else period_key
+    else:
+        qualifiers = [period_key, report_type]
+        if request_slug:
+            qualifiers.append(request_slug)
+        if suffix:
+            qualifiers.append(suffix)
+        stem = "__".join(qualifiers)
+    return out_dir / f"{stem}.html"
 
 
 def _get_env(template_dir: Path | None = None) -> Environment:
@@ -157,7 +200,10 @@ def generate_report(
         week, len(collected), len(articles),
     )
 
-    trend_statuses = compute_trend_statuses(trend_repo, week=week)
+    # weeks_back comes from config (app.weeks_history) rather than the module
+    # default, so the comparison window is configurable per request.
+    weeks_back = getattr(settings.app, "weeks_history", None) or DEFAULT_WEEKS_BACK
+    trend_statuses = compute_trend_statuses(trend_repo, week=week, weeks_back=weeks_back)
     digest = build_trend_digest(trend_statuses, week=week)
 
     # The caller (e.g. the pipeline) may have already run the Gemini-only deep

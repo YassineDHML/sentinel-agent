@@ -36,6 +36,7 @@ from typing import Any, Callable
 from .analyze import analyze_articles
 from .analyze.llm import GeminiProvider, GroqProvider, LLMClient
 from .analyze.trends import (
+    DEFAULT_WEEKS_BACK,
     build_trend_digest,
     compute_trend_statuses,
     current_iso_week,
@@ -274,7 +275,8 @@ def run_pipeline(
     with _Timer() as t:
         t_repo = _MemoryTrendRepo() if dry_run else trend_repo
         record_week_trends(analyzed, t_repo, week=week)
-        statuses = compute_trend_statuses(t_repo, week=week)
+        weeks_back = getattr(settings.app, "weeks_history", None) or DEFAULT_WEEKS_BACK
+        statuses = compute_trend_statuses(t_repo, week=week, weeks_back=weeks_back)
         digest = build_trend_digest(statuses, week=week)
     _log_stage(result, "trends", len(statuses), t.elapsed,
                note="dry-run: vs empty history" if dry_run else "")

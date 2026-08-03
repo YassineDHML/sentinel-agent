@@ -40,6 +40,7 @@ from sentinel.analyze.trends import (
     record_week_trends,
     week_bounds_iso,
 )
+from sentinel.collect.dated import build_dated_queries
 from sentinel.collect.googlenews import collect_googlenews
 from sentinel.config import ConfigError, load_settings, require_secrets
 from sentinel.logging_conf import get_logger, setup_logging
@@ -54,12 +55,11 @@ DEFAULT_LIMIT_PER_WEEK = 40   # cap classified articles/week to bound LLM quota
 def build_week_queries(base_queries: list[str], week: str) -> list[str]:
     """Turn each discovery query into a Google-News query bounded to one ISO week.
 
-    Uses Google News' ``after:`` / ``before:`` date operators over the week's
-    Monday → next-Monday span (from :func:`week_bounds_iso`).
+    Thin wrapper over :func:`~sentinel.collect.dated.build_dated_queries` (which
+    handles arbitrary spans) using the week's Monday → next-Monday bounds.
     """
     start_iso, end_iso = week_bounds_iso(week)
-    after, before = start_iso[:10], end_iso[:10]  # YYYY-MM-DD
-    return [f"{q} after:{after} before:{before}" for q in base_queries]
+    return build_dated_queries(base_queries, start_iso, end_iso)
 
 
 def run_backfill(

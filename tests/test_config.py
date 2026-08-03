@@ -17,18 +17,29 @@ from sentinel.config import (
 
 
 def test_load_settings_reads_project_config():
-    """The real config.yaml loads and matches the Phase 0 starter scope."""
+    """The real config.yaml loads and satisfies the structural invariants.
+
+    Deliberately asserts INVARIANTS, not literal contents: the monitored scope
+    (categories/actors/topics) is expected to change as the watch is retuned or
+    parameterized, and a test that pins exact values would red-line CI on every
+    legitimate config edit.
+    """
     settings = load_settings(load_env=False)
     assert isinstance(settings, Settings)
-    assert settings.app.name == "Sentinel"
-    assert settings.categories == ["LLM Providers", "Agent Platforms"]
-    assert len(settings.actors) == 7
-    assert {a.name for a in settings.actors} >= {"OpenAI", "Anthropic", "LangChain"}
-    assert len(settings.topics) == 20
-    assert settings.llm.gemini_model  # non-empty, sourced from config not hardcoded
-    assert settings.llm.groq_model == "llama-3.3-70b-versatile"
+    assert settings.app.name
+    assert settings.categories, "at least one category must be declared"
+    assert len(settings.actors) >= 1
+    assert len(settings.relevance_keywords) >= 1
+    # canonical topic list stays in the range the trend engine is tuned for
+    assert 15 <= len(settings.topics) <= 25
+    assert len(set(settings.topics)) == len(settings.topics), "topics must be unique"
+    # model names must come from config, never hardcoded in code
+    assert settings.llm.gemini_model
+    assert settings.llm.groq_model
+    assert settings.llm.batch_size >= 1
     # every actor's category must be one of the declared categories
     assert all(a.category in settings.categories for a in settings.actors)
+    assert settings.report.recipients, "at least one recipient must be configured"
 
 
 def test_missing_config_file_raises():

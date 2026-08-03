@@ -178,6 +178,55 @@ def test_generate_report_lists_only_analyzed_articles(tmp_path):
     assert "OpenAI ships GPT-5" in html       # analyzed article listed as a source
 
 
+def test_report_output_path_preserves_weekly_naming(tmp_path):
+    """The weekly watch must keep its historical output/<week>.html filename."""
+    from sentinel.report.builder import report_output_path
+
+    assert report_output_path("2026-W29", output_dir=tmp_path) == tmp_path / "2026-W29.html"
+    assert (
+        report_output_path("2026-W29", suffix="dryrun", output_dir=tmp_path)
+        == tmp_path / "2026-W29.dryrun.html"
+    )
+
+
+def test_report_output_path_qualifies_other_report_types(tmp_path):
+    """Other types get qualified names so they can't overwrite the weekly report."""
+    from sentinel.report.builder import report_output_path
+
+    assert report_output_path(
+        "2026-M07", report_type="research", request_slug="ai-health", output_dir=tmp_path
+    ) == tmp_path / "2026-M07__research__ai-health.html"
+    assert report_output_path(
+        "2026-M07", report_type="competitor", output_dir=tmp_path
+    ) == tmp_path / "2026-M07__competitor.html"
+    # a research report never collides with the weekly one for the same period
+    assert report_output_path("2026-W29", report_type="research", output_dir=tmp_path) != (
+        report_output_path("2026-W29", output_dir=tmp_path)
+    )
+
+
+def test_generate_report_uses_configured_weeks_history(tmp_path):
+    """app.weeks_history (previously dead config) now drives the comparison window."""
+    import dataclasses
+
+    article_repo = MagicMock()
+    article_repo.list_by_week.return_value = ARTICLES
+    trend_repo = MagicMock()
+    trend_repo.get_by_week.return_value = []
+    settings = _settings()
+    settings = dataclasses.replace(
+        settings, app=dataclasses.replace(settings.app, weeks_history=6)
+    )
+
+    generate_report(
+        settings, article_repo, trend_repo, MagicMock(),
+        week=WEEK, client=MagicMock(), compute_deep=False,
+        output_dir=tmp_path, generated_at="x",
+    )
+    # current week + 6 prior weeks read back from the trends table
+    assert trend_repo.get_by_week.call_count == 7
+
+
 def test_generate_report_survives_db_persist_failure(tmp_path):
     article_repo = MagicMock()
     article_repo.list_by_week.return_value = []

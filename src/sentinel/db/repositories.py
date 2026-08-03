@@ -154,9 +154,41 @@ class ReportRepository:
     def __init__(self, db: SupabaseDB) -> None:
         self.db = db
 
-    def store(self, week: str, content_html: str) -> Row | None:
-        """Archive a generated report for a week. Returns the stored row."""
-        row: Row = {"week": week, "content_html": content_html}
+    def store(
+        self,
+        week: str,
+        content_html: str,
+        *,
+        report_type: str = "weekly",
+        request_slug: str | None = None,
+        language: str | None = None,
+        period_kind: str | None = None,
+        period_key: str | None = None,
+        period_start: str | None = None,
+        period_end: str | None = None,
+        title: str | None = None,
+        word_count: int | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> Row | None:
+        """Archive a generated report. Returns the stored row.
+
+        Everything past ``content_html`` is keyword-only and optional: called with
+        two positional arguments it behaves exactly as before (a weekly report).
+        The extra fields let parameterized/typed reports coexist in one table.
+        """
+        row: Row = {"week": week, "content_html": content_html, "report_type": report_type}
+        optional = {
+            "request_slug": request_slug,
+            "language": language,
+            "period_kind": period_kind,
+            "period_key": period_key,
+            "period_start": period_start,
+            "period_end": period_end,
+            "title": title,
+            "word_count": word_count,
+            "params": params,
+        }
+        row.update({k: v for k, v in optional.items() if v is not None})
         return _first(self.db.execute(self.db.table(self.TABLE).insert(row)).data)
 
     def get_latest_by_week(self, week: str) -> Row | None:
@@ -169,3 +201,53 @@ class ReportRepository:
             .limit(1)
         )
         return _first(self.db.execute(query).data)
+
+    def list_by_type(self, report_type: str, *, limit: int = 10) -> list[Row]:
+        """Return the most recent reports of a given type, newest first."""
+        query = (
+            self.db.table(self.TABLE)
+            .select("*")
+            .eq("report_type", report_type)
+            .order("generated_at", desc=True)
+            .limit(limit)
+        )
+        return self.db.execute(query).data or []
+
+    def get_latest_for_request(self, request_slug: str, period_key: str) -> Row | None:
+        """Return the latest report for a request + period, or ``None``."""
+        query = (
+            self.db.table(self.TABLE)
+            .select("*")
+            .eq("request_slug", request_slug)
+            .eq("period_key", period_key)
+            .order("generated_at", desc=True)
+            .limit(1)
+        )
+        return _first(self.db.execute(query).data)
+
+
+class ReportSourceRepository:
+    """CRUD for the ``report_sources`` table (the citation ledger).
+
+    Every source a generated report actually cites gets a row here, tagged with its
+    evidence tier, making the anti-hallucination guarantee auditable after the fact.
+    """
+
+    TABLE = "report_sources"
+
+    def __init__(self, db: SupabaseDB) -> None:
+        self.db = db
+
+    def add_many(self, report_id: int, sources: list[Row]) -> list[Row]:
+        """Bulk-insert citation rows for a report. Returns the inserted rows."""
+        if not sources:
+            return []
+        rows = [{**s, "report_id": report_id} for s in sources]
+        inserted = self.db.execute(self.db.table(self.TABLE).insert(rows)).data or []
+        logger.info("Recorded %d cited source(s) for report %s.", len(inserted), report_id)
+        return inserted
+
+    def list_for_report(self, report_id: int) -> list[Row]:
+        """Return every cited source for a report."""
+        query = self.db.table(self.TABLE).select("*").eq("report_id", report_id)
+        return self.db.execute(query).data or []

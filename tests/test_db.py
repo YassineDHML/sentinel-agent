@@ -151,7 +151,74 @@ def test_report_store():
     assert row["id"] == 9
     client.table.assert_called_with("reports")
     args, _ = client.table.return_value.insert.call_args
-    assert args[0] == {"week": "2026-W24", "content_html": "<html>hi</html>"}
+    # two positional args => a weekly report, with no optional columns set
+    assert args[0] == {
+        "week": "2026-W24",
+        "content_html": "<html>hi</html>",
+        "report_type": "weekly",
+    }
+
+
+def test_report_store_with_typed_request_metadata():
+    db, client = _db_with_mock_client()
+    client.table.return_value.insert.return_value.execute.return_value = _resp([{"id": 10}])
+    repo = ReportRepository(db)
+
+    repo.store(
+        "2026-M07", "<html/>", report_type="research", request_slug="ai-health",
+        language="fr", period_kind="month", period_key="2026-M07", word_count=2980,
+        params={"theme": "AI in healthcare"},
+    )
+    args, _ = client.table.return_value.insert.call_args
+    row = args[0]
+    assert row["report_type"] == "research"
+    assert row["request_slug"] == "ai-health"
+    assert row["language"] == "fr"
+    assert row["word_count"] == 2980
+    assert row["params"] == {"theme": "AI in healthcare"}
+    # unset optional columns are omitted entirely rather than sent as NULL
+    assert "title" not in row
+
+
+def test_report_list_by_type():
+    db, client = _db_with_mock_client()
+    (
+        client.table.return_value.select.return_value.eq.return_value
+        .order.return_value.limit.return_value.execute.return_value
+    ) = _resp([{"id": 1, "report_type": "research"}])
+    repo = ReportRepository(db)
+
+    rows = repo.list_by_type("research", limit=5)
+    assert rows and rows[0]["report_type"] == "research"
+    client.table.return_value.select.return_value.eq.assert_called_with("report_type", "research")
+
+
+def test_report_source_repository_records_citations():
+    from sentinel.db.repositories import ReportSourceRepository
+
+    db, client = _db_with_mock_client()
+    client.table.return_value.insert.return_value.execute.return_value = _resp(
+        [{"id": 1}, {"id": 2}]
+    )
+    repo = ReportSourceRepository(db)
+
+    out = repo.add_many(7, [
+        {"tier": "A", "url": "https://a/1", "domain": "a", "title": "t1"},
+        {"tier": "B", "url": "https://b/2", "domain": "mckinsey.com", "title": "t2"},
+    ])
+    assert len(out) == 2
+    client.table.assert_called_with("report_sources")
+    args, _ = client.table.return_value.insert.call_args
+    assert all(r["report_id"] == 7 for r in args[0])
+    assert {r["tier"] for r in args[0]} == {"A", "B"}
+
+
+def test_report_source_repository_empty_is_noop():
+    from sentinel.db.repositories import ReportSourceRepository
+
+    db, client = _db_with_mock_client()
+    assert ReportSourceRepository(db).add_many(7, []) == []
+    client.table.return_value.insert.assert_not_called()
 
 
 # --------------------------------------------------------------------------- #

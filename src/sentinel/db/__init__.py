@@ -5,7 +5,12 @@ so importing this package requires neither the SDK nor any credentials.
 """
 
 from .client import SupabaseDB, create_supabase_client
-from .repositories import ArticleRepository, ReportRepository, TrendRepository
+from .repositories import (
+    ArticleRepository,
+    ReportRepository,
+    ReportSourceRepository,
+    TrendRepository,
+)
 
 __all__ = [
     "SupabaseDB",
@@ -13,4 +18,5 @@ __all__ = [
     "ArticleRepository",
     "TrendRepository",
     "ReportRepository",
+    "ReportSourceRepository",
 ]

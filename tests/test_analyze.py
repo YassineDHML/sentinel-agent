@@ -174,6 +174,101 @@ def test_generate_raises_llmerror_without_fallback(monkeypatch):
         client.generate("prompt")
 
 
+def test_gemini_config_unchanged_when_no_knobs_set():
+    """Default construction must emit exactly the original config (json mime only).
+
+    This protects the weekly pipeline: the new generation knobs are opt-in, so an
+    untouched GeminiProvider sends the same request it always did.
+    """
+    from sentinel.analyze.llm import GeminiProvider
+
+    cfg = GeminiProvider("m")._build_config()
+    assert cfg.response_mime_type == "application/json"
+    assert cfg.max_output_tokens is None
+    assert cfg.temperature is None
+    assert cfg.tools is None
+    assert cfg.system_instruction is None
+
+
+def test_gemini_config_applies_opt_in_knobs():
+    from sentinel.analyze.llm import GeminiProvider
+
+    cfg = GeminiProvider(
+        "m", max_output_tokens=3000, temperature=0.35, system_instruction="be terse",
+        thinking_budget=0,
+    )._build_config()
+    assert cfg.max_output_tokens == 3000
+    assert cfg.temperature == 0.35
+    assert cfg.system_instruction == "be terse"
+    assert cfg.thinking_config.thinking_budget == 0
+
+
+def test_gemini_config_is_none_when_nothing_set():
+    """json_mode=False with no knobs -> no config object at all (as before)."""
+    from sentinel.analyze.llm import GeminiProvider
+
+    assert GeminiProvider("m", json_mode=False)._build_config() is None
+
+
+def test_generate_detailed_extracts_finish_reason_and_grounding():
+    """Truncation detection + grounding harvest, defensive about response shape."""
+    from types import SimpleNamespace
+
+    from sentinel.analyze.llm import GeminiProvider
+
+    provider = GeminiProvider("m")
+    grounding = SimpleNamespace(grounding_chunks=["chunk"])
+    fake_resp = SimpleNamespace(
+        text="hello",
+        candidates=[SimpleNamespace(finish_reason=SimpleNamespace(name="MAX_TOKENS"),
+                                    grounding_metadata=grounding)],
+        usage_metadata=SimpleNamespace(total_token_count=42),
+    )
+    provider._call = lambda prompt: fake_resp  # type: ignore[method-assign]
+
+    out = provider.generate_detailed("p")
+    assert out.text == "hello"
+    assert out.finish_reason == "MAX_TOKENS"
+    assert out.truncated is True
+    assert out.grounding is grounding
+    assert out.usage.total_token_count == 42
+
+
+def test_generate_detailed_survives_bare_response():
+    """A response with no candidates/usage must not raise."""
+    from types import SimpleNamespace
+
+    from sentinel.analyze.llm import GeminiProvider
+
+    provider = GeminiProvider("m")
+    provider._call = lambda prompt: SimpleNamespace(text="x")  # type: ignore[method-assign]
+    out = provider.generate_detailed("p")
+    assert out.text == "x"
+    assert out.finish_reason is None
+    assert out.truncated is False
+    assert out.grounding is None
+
+
+def test_min_interval_paces_successive_calls(monkeypatch):
+    """Pacing protects the free-tier RPM budget when one report makes many calls."""
+    sleeps: list[float] = []
+    monkeypatch.setattr(llm_module, "_sleep", lambda s: sleeps.append(s))
+    provider = FakeProvider("gemini", ['{"1": "a"}', '{"1": "b"}', '{"1": "c"}'])
+    client = LLMClient(provider, batch_size=1, min_interval_seconds=5.0)
+    client.summarize_batch([_art("u1", "a"), _art("u2", "b"), _art("u3", "c")])
+    # first call is immediate; the next two wait out the interval
+    assert len(sleeps) == 2
+    assert all(0 < s <= 5.0 for s in sleeps)
+
+
+def test_no_pacing_by_default(monkeypatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr(llm_module, "_sleep", lambda s: sleeps.append(s))
+    provider = FakeProvider("gemini", ['{"1": "a"}', '{"1": "b"}'])
+    LLMClient(provider, batch_size=1).summarize_batch([_art("u1", "a"), _art("u2", "b")])
+    assert sleeps == []
+
+
 def test_is_rate_limit_detection():
     class RateLimitError(Exception):
         pass

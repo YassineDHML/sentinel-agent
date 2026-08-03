@@ -46,7 +46,12 @@ create table if not exists trends (
 create index if not exists idx_trends_week on trends (week);
 
 -- =============================================================================
--- reports — generated weekly reports (archive).
+-- reports — generated reports (archive).
+-- The original table stored only the weekly watch. The added columns let several
+-- report TYPES (weekly watch, deep research, competitor scan) and several
+-- parameterized requests coexist, on any cadence, without colliding.
+-- All additions are nullable / defaulted so existing rows and the existing
+-- ReportRepository.store(week, html) call keep working unchanged.
 -- =============================================================================
 create table if not exists reports (
     id            bigint generated always as identity primary key,
@@ -55,7 +60,47 @@ create table if not exists reports (
     content_html  text
 );
 
+alter table reports add column if not exists report_type   text default 'weekly';
+alter table reports add column if not exists request_slug  text;
+alter table reports add column if not exists language      text;
+alter table reports add column if not exists period_kind   text;
+alter table reports add column if not exists period_key    text;
+alter table reports add column if not exists period_start  timestamptz;
+alter table reports add column if not exists period_end    timestamptz;
+alter table reports add column if not exists title         text;
+alter table reports add column if not exists word_count    integer;
+alter table reports add column if not exists params        jsonb;
+
 create index if not exists idx_reports_week on reports (week);
+create index if not exists idx_reports_type on reports (report_type, generated_at desc);
+create index if not exists idx_reports_request on reports (request_slug, period_key);
+
+-- =============================================================================
+-- report_sources — the citation ledger.
+-- One row per source actually cited by a generated report, so the
+-- anti-hallucination guarantee is auditable after the fact: every claim in a
+-- report traces to a row here.
+--   tier 'A' = a URL from our collected article corpus
+--   tier 'B' = a web source retrieved via LLM search grounding (verified URI)
+--   tier 'C' = a prospective/inferred statement, anchored to A/B evidence
+-- `domain` is stored separately because grounding URIs are redirect shells that
+-- can expire, while the publisher domain remains a durable attribution.
+-- =============================================================================
+create table if not exists report_sources (
+    id          bigint generated always as identity primary key,
+    report_id   bigint references reports(id) on delete cascade,
+    tier        text check (tier in ('A', 'B', 'C')),
+    kind        text,
+    url         text,
+    domain      text,
+    title       text,
+    section     text,
+    verified    boolean default false,
+    created_at  timestamptz default now()
+);
+
+create index if not exists idx_report_sources_report on report_sources (report_id);
+create index if not exists idx_report_sources_domain on report_sources (domain);
 
 -- =============================================================================
 -- ping() — trivial "SELECT 1" used by the keep-alive workflow.
