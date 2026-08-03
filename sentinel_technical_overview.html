@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sentinel — Technical Overview</title>
+<style>
+  :root {
+    --ink:#1e293b; --muted:#64748b; --line:#e2e8f0; --bg:#f1f5f9;
+    --accent:#4338ca; --accent-soft:#eef2ff;
+    --collect:#0369a1; --process:#0891b2; --fulltext:#0d9488;
+    --analyze:#7c3aed; --trends:#c026d3; --report:#db2777; --deliver:#e11d48;
+    --green:#047857; --green-soft:#ecfdf5; --amber:#b45309; --amber-soft:#fffbeb;
+    --grey:#64748b; --grey-soft:#f1f5f9;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI",Arial,Helvetica,sans-serif; color:var(--ink);
+         line-height:1.55; background:var(--bg); }
+  .page { max-width:920px; margin:24px auto; background:#fff; padding:44px 52px;
+          box-shadow:0 1px 8px rgba(0,0,0,.08); }
+
+  header.doc { border-bottom:3px solid var(--accent); padding-bottom:18px; margin-bottom:24px; }
+  header.doc .eyebrow { color:var(--accent); font-size:12.5px; font-weight:700;
+                        letter-spacing:.08em; text-transform:uppercase; }
+  header.doc h1 { margin:6px 0 2px; font-size:28px; }
+  header.doc .subtitle { color:var(--muted); font-size:15px; }
+  header.doc .meta { margin-top:12px; font-size:13.5px; color:var(--muted); }
+
+  h2 { font-size:19px; color:var(--accent); margin:34px 0 12px; padding-bottom:6px;
+       border-bottom:1px solid var(--line); }
+  h3 { font-size:15px; margin:18px 0 6px; }
+  p { margin:10px 0; font-size:14.5px; }
+  ul { margin:8px 0; padding-left:22px; } li { margin:5px 0; font-size:14.5px; }
+  code { background:var(--grey-soft); padding:1px 5px; border-radius:4px; font-size:13px;
+         font-family:"Consolas",monospace; }
+
+  .toc { background:var(--accent-soft); border-radius:8px; padding:14px 20px; font-size:14px; }
+  .toc a { color:var(--accent); text-decoration:none; } .toc a:hover { text-decoration:underline; }
+  .toc ol { margin:6px 0; padding-left:22px; } .toc li { margin:3px 0; }
+
+  .callout { background:var(--accent-soft); border-left:4px solid var(--accent);
+             padding:14px 18px; border-radius:4px; margin:16px 0; font-size:14.5px; }
+
+  .two-concepts { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:14px 0; }
+  .concept { border:1px solid var(--line); border-radius:8px; padding:14px 16px; }
+  .concept .t { font-weight:700; color:var(--accent); font-size:14.5px; margin-bottom:4px; }
+  .concept p { margin:4px 0; font-size:13.5px; }
+
+  /* Architecture diagram */
+  .arch { margin:18px 0; }
+  .layer { border:2px solid var(--line); border-radius:10px; padding:12px 16px; text-align:center; }
+  .layer .lname { font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+  .layer .ldesc { font-size:13.5px; margin-top:3px; }
+  .layer.sched { background:#f8fafc; }
+  .layer.mem { background:#f8fafc; }
+  .conn { text-align:center; color:var(--muted); font-size:20px; line-height:1; margin:2px 0; }
+
+  /* Pipeline chain */
+  .pipe { display:flex; flex-wrap:wrap; gap:6px; align-items:stretch; justify-content:center;
+          margin:6px 0; }
+  .stage { flex:1 1 108px; min-width:104px; border-radius:8px; padding:9px 8px; color:#fff;
+           text-align:center; }
+  .stage .n { font-size:11px; opacity:.85; font-weight:700; }
+  .stage .s { font-size:13px; font-weight:700; margin:2px 0; }
+  .stage .d { font-size:10.5px; opacity:.95; line-height:1.35; }
+  .st1{background:var(--collect);} .st2{background:var(--process);} .st3{background:var(--fulltext);}
+  .st4{background:var(--analyze);} .st5{background:var(--trends);} .st6{background:var(--report);}
+  .st7{background:var(--deliver);}
+
+  /* Funnel */
+  .funnel { margin:12px 0; }
+  .frow { display:flex; align-items:center; gap:12px; margin:5px 0; font-size:13.5px; }
+  .fbar { height:26px; border-radius:5px; background:linear-gradient(90deg,#4338ca,#6366f1);
+          color:#fff; display:flex; align-items:center; padding:0 10px; font-weight:700;
+          font-size:12.5px; white-space:nowrap; }
+  .flabel { color:var(--muted); }
+
+  table { width:100%; border-collapse:collapse; margin:12px 0; font-size:13.5px; }
+  th,td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+
+  .badge { display:inline-block; font-size:11px; font-weight:700; padding:2px 9px; border-radius:999px; }
+  .b-done{color:var(--green);background:var(--green-soft);}
+  .b-prog{color:var(--amber);background:var(--amber-soft);}
+  .b-next{color:var(--grey);background:var(--grey-soft);}
+
+  .cards { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:14px 0; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:14px; text-align:center; }
+  .card .num { font-size:22px; font-weight:800; color:var(--accent); }
+  .card .lbl { font-size:11.5px; color:var(--muted); margin-top:3px; }
+
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px 22px; }
+
+  footer.doc { margin-top:32px; padding-top:14px; border-top:1px solid var(--line);
+               font-size:12.5px; color:var(--muted); }
+
+  @page { size:A4; margin:14mm; }
+  @media print {
+    body{background:#fff;} .page{box-shadow:none;margin:0;max-width:none;padding:0;}
+    h2{page-break-after:avoid;} .arch,.pipe,.funnel,.cards,table,.two-concepts{page-break-inside:avoid;}
+    .stage,.card{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="doc">
+    <div class="eyebrow">Welyne · Programme AI Commandos</div>
+    <h1>Sentinel — Technical Overview</h1>
+    <div class="subtitle">Automated strategic-intelligence pipeline for the AI SaaS B2B sector</div>
+    <div class="meta">Progress review · Yassine (intern) · ~1 month of work · MVP</div>
+  </header>
+
+  <div class="toc">
+    <strong>Contents</strong>
+    <ol>
+      <li><a href="#what">What Sentinel is &amp; two core ideas</a></li>
+      <li><a href="#arch">System architecture</a></li>
+      <li><a href="#pipeline">The pipeline, stage by stage</a></li>
+      <li><a href="#flow">Data flow (one weekly run)</a></li>
+      <li><a href="#stack">Key components &amp; tech stack</a></li>
+      <li><a href="#highlights">Design decisions</a></li>
+      <li><a href="#status">Status, testing &amp; what's next</a></li>
+    </ol>
+  </div>
+
+  <h2 id="what">1. What Sentinel is</h2>
+  <p>
+    Sentinel is a <strong>weekly automated pipeline</strong> that watches the AI-tooling market.
+    Each week it collects industry news from several sources, filters and deduplicates it, uses an
+    LLM to summarize and tag each article, tracks how topics evolve over time, generates an HTML
+    report, and emails it to the team — running autonomously in the cloud, on free tiers only.
+  </p>
+
+  <div class="two-concepts">
+    <div class="concept">
+      <div class="t">① Workflow, not an agent</div>
+      <p>The steps run in a fixed order (A→B→C→D). The LLM is used only <em>inside</em> two narrow,
+         controlled steps — it never decides the control flow. This makes the system predictable,
+         debuggable, and reliable for an unattended weekly job.</p>
+    </div>
+    <div class="concept">
+      <div class="t">② The database is the memory</div>
+      <p>Cloud runners are ephemeral (wiped after each run), so all state — article history, weekly
+         topic counts, past reports — lives in Supabase. "Is this trend accelerating?" means reading
+         the last 4 weeks back out of the database and comparing.</p>
+    </div>
+  </div>
+
+  <h2 id="arch">2. System architecture</h2>
+  <p>Three layers: a <strong>scheduler</strong> triggers the <strong>pipeline</strong>, which reads
+     and writes its <strong>memory</strong>.</p>
+
+  <div class="arch">
+    <div class="layer sched">
+      <div class="lname">Scheduler — GitHub Actions</div>
+      <div class="ldesc">Weekly cron (Mon 06:00 UTC) runs the pipeline<br>
+        Separate keep-alive cron pings the DB every 3 days</div>
+    </div>
+    <div class="conn">▼</div>
+    <div class="layer" style="border-color:var(--accent);">
+      <div class="lname" style="color:var(--accent);">Pipeline — 7 sequential stages</div>
+      <div class="pipe" style="margin-top:8px;">
+        <div class="stage st1"><div class="n">1</div><div class="s">Collect</div><div class="d">5 sources → raw articles</div></div>
+        <div class="stage st2"><div class="n">2</div><div class="s">Process</div><div class="d">filter + dedup + store</div></div>
+        <div class="stage st3"><div class="n">3</div><div class="s">Fulltext</div><div class="d">fetch article body</div></div>
+        <div class="stage st4"><div class="n">4</div><div class="s">Analyze</div><div class="d">LLM summarize + tag</div></div>
+        <div class="stage st5"><div class="n">5</div><div class="s">Trends</div><div class="d">count + NEW/ACCEL</div></div>
+        <div class="stage st6"><div class="n">6</div><div class="s">Report</div><div class="d">deep analysis + HTML</div></div>
+        <div class="stage st7"><div class="n">7</div><div class="s">Deliver</div><div class="d">email + Slack</div></div>
+      </div>
+    </div>
+    <div class="conn">▲ reads / writes ▼</div>
+    <div class="layer mem">
+      <div class="lname">Memory — Supabase (PostgreSQL, free tier)</div>
+      <div class="ldesc"><code>articles</code> (every article kept) ·
+        <code>trends</code> (topic counts per week) · <code>reports</code> (archive) — <strong>persistent between runs</strong></div>
+    </div>
+  </div>
+
+  <h2 id="pipeline">3. The pipeline, stage by stage</h2>
+  <table>
+    <tr><th style="width:14%">Stage</th><th style="width:43%">What it does</th><th>Key detail worth knowing</th></tr>
+    <tr>
+      <td><strong>1 · Collect</strong></td>
+      <td>Pulls raw articles from 5 sources into one uniform shape.</td>
+      <td>RSS, Hacker News, Product Hunt, Google News, GNews. Each behind its own module; a dead source is skipped, never fatal. RSS/APIs preferred over scraping (cloud IPs get blocked).</td>
+    </tr>
+    <tr>
+      <td><strong>2 · Process</strong></td>
+      <td>Drops off-topic articles, removes duplicates, saves new ones.</td>
+      <td>Relevance = keyword/actor match (word-boundary aware, so "AI" ≠ "email"). Dedup = exact URL + title-similarity grouping. Only genuinely-new URLs are stored (<code>processed=false</code>).</td>
+    </tr>
+    <tr>
+      <td><strong>3 · Fulltext</strong></td>
+      <td>Fetches the full article body for the batch about to be analyzed.</td>
+      <td>Collectors only give title + snippet; the LLM needs the body. robots.txt-aware, polite delay, 429 backoff + per-host circuit breaker. Fetched text is cached in the DB (fetched at most once).</td>
+    </tr>
+    <tr>
+      <td><strong>4 · Analyze</strong></td>
+      <td>LLM writes a 3–5 line summary and assigns canonical topic tags.</td>
+      <td>Batched (8 articles/call) to respect rate limits. Gemini primary, Groq fallback for light tasks. Tags must come from a fixed list — invented tags are rejected.</td>
+    </tr>
+    <tr>
+      <td><strong>5 · Trends</strong></td>
+      <td>Counts topics for the week, labels each NEW / ONGOING / ACCELERATING.</td>
+      <td><strong>Pure arithmetic, no LLM.</strong> Compares this week's counts against the prior 4 weeks read from the DB. Produces a compact "trend digest".</td>
+    </tr>
+    <tr>
+      <td><strong>6 · Report</strong></td>
+      <td>Builds the narrative + renders the HTML report, archives it.</td>
+      <td>One Gemini-only "deep analysis" call → exec summary, competitive watch, opportunities. Trends &amp; sources sections are deterministic. Every claim must cite a real source URL.</td>
+    </tr>
+    <tr>
+      <td><strong>7 · Deliver</strong></td>
+      <td>Emails the report; posts a Slack notification.</td>
+      <td>Gmail SMTP (app password). Slack optional. Email failure is loud (fails the run) but the report is already archived.</td>
+    </tr>
+  </table>
+
+  <h2 id="flow">4. Data flow — one weekly run</h2>
+  <p>A single run funnels ~2,700 raw articles down to a focused report (numbers from a real run):</p>
+  <div class="funnel">
+    <div class="frow"><div class="fbar" style="width:100%">2,731</div><div class="flabel">collected (5 sources)</div></div>
+    <div class="frow"><div class="fbar" style="width:66%">~1,800</div><div class="flabel">after relevance filter (off-topic dropped)</div></div>
+    <div class="frow"><div class="fbar" style="width:62%">~1,700</div><div class="flabel">after dedup (URL + title similarity)</div></div>
+    <div class="frow"><div class="fbar" style="width:20%">575</div><div class="flabel">newly stored to DB (rest already seen)</div></div>
+    <div class="frow"><div class="fbar" style="width:8%">25</div><div class="flabel">analyzed by the LLM this run (configurable cap)</div></div>
+    <div class="frow"><div class="fbar" style="width:5%">1</div><div class="flabel">report generated + emailed</div></div>
+  </div>
+  <p style="font-size:13px;color:var(--muted);">
+    The analyze cap (<code>--limit</code>, default 25) keeps LLM usage inside the free tier. Selection =
+    this week's not-yet-analyzed articles. Storage is cheap metadata; only analyzed
+    articles get full text + summaries.
+  </p>
+
+  <h2 id="stack">5. Key components &amp; tech stack</h2>
+  <table>
+    <tr><th style="width:22%">Layer</th><th style="width:30%">Technology</th><th>Role</th></tr>
+    <tr><td>Language</td><td>Python 3.11+</td><td>whole system; <code>src/</code> package layout</td></tr>
+    <tr><td>Storage / memory</td><td>Supabase (PostgreSQL)</td><td>persistent state across runs; retry-with-backoff client</td></tr>
+    <tr><td>LLM (primary)</td><td>Google Gemini (Flash)</td><td>summaries, classification, deep analysis</td></tr>
+    <tr><td>LLM (fallback)</td><td>Groq (Llama 3.3 70B)</td><td>light tasks only when Gemini is down</td></tr>
+    <tr><td>Collection</td><td>feedparser · requests · BeautifulSoup</td><td>RSS parsing, HTTP, full-text extraction</td></tr>
+    <tr><td>Reporting</td><td>Jinja2</td><td>HTML report template (email-safe, inline CSS)</td></tr>
+    <tr><td>Delivery</td><td>Gmail SMTP · Slack webhook</td><td>email + optional notification</td></tr>
+    <tr><td>Scheduling / deploy</td><td>GitHub Actions (cron)</td><td>weekly run + keep-alive, secrets injected from GitHub Secrets</td></tr>
+    <tr><td>Tests</td><td>pytest</td><td>148 tests, all external calls mocked</td></tr>
+  </table>
+  <p><strong>Config vs secrets:</strong> all non-secret settings live in <code>config.yaml</code>
+     (actors, feeds, keywords, the ~20 canonical topics, model names, recipients); all keys/credentials
+     load from environment variables (<code>.env</code> locally, GitHub Secrets in CI). Model names are
+     never hardcoded.</p>
+
+  <h2 id="highlights">6. Design decisions</h2>
+  <div class="grid2">
+    <div>
+      <h3>Tiered LLM fallback (not a mirror)</h3>
+      <p style="font-size:13.5px;">Groq's free budget (12k tokens/min) is too small for historical
+        analysis, so it only ever handles light tasks; the heavy analysis stays Gemini-only. Never
+        cram history into the small model.</p>
+      <h3>Canonical topic list</h3>
+      <p style="font-size:13.5px;">The LLM tags into a closed list of ~20 topics; invented labels are
+        dropped. This is what makes week-over-week trend counting reliable.</p>
+      <h3>Citations enforced in code</h3>
+      <p style="font-size:13.5px;">Every report claim must cite a source article number; the parser
+        resolves it to a real URL and deletes any uncited statement. Anti-hallucination is guaranteed,
+        not just requested.</p>
+    </div>
+    <div>
+      <h3>Graceful degradation everywhere</h3>
+      <p style="font-size:13.5px;">A dead source, a rate-limited host, a bad LLM response, even a
+        missing LLM — each degrades and logs rather than crashing the weekly run. Email failure is the
+        only "loud" failure.</p>
+      <h3>Free-tier by design</h3>
+      <p style="font-size:13.5px;">Batching, an analyze cap, discovery-only sources, and a DB keep-alive
+        all exist to stay within free quotas. Total running cost: <strong>0 €</strong>.</p>
+      <h3>Reproducible &amp; tested</h3>
+      <p style="font-size:13.5px;">Strict version pins; 148 automated tests that run without any secrets
+        (mocked externals) — the safety net for evolving the code.</p>
+    </div>
+  </div>
+
+  <h2 id="status">7. Status, testing &amp; what's next</h2>
+
+  <div class="cards">
+    <div class="card"><div class="num">5</div><div class="lbl">data sources</div></div>
+    <div class="card"><div class="num">~2,700</div><div class="lbl">articles / run</div></div>
+    <div class="card"><div class="num">~20</div><div class="lbl">tracked topics</div></div>
+    <div class="card"><div class="num">148</div><div class="lbl">automated tests</div></div>
+    <div class="card"><div class="num">0 €</div><div class="lbl">running cost</div></div>
+    <div class="card"><div class="num">7</div><div class="lbl">pipeline stages</div></div>
+    <div class="card"><div class="num">1 / wk</div><div class="lbl">autonomous report</div></div>
+    <div class="card"><div class="num">100%</div><div class="lbl">cloud / autonomous</div></div>
+  </div>
+
+  <table>
+    <tr><th style="width:70%">Component</th><th>Status</th></tr>
+    <tr><td>Foundations, config, persistence (+ keep-alive)</td><td><span class="badge b-done">Done</span></td></tr>
+    <tr><td>Collection (5 sources) + full-text extraction</td><td><span class="badge b-done">Done</span></td></tr>
+    <tr><td>Processing (relevance filter + dedup)</td><td><span class="badge b-done">Done</span></td></tr>
+    <tr><td>LLM analysis (summarize + classify, tiered fallback)</td><td><span class="badge b-done">Done</span></td></tr>
+    <tr><td>Trend engine + historical backfill</td><td><span class="badge b-done">Done</span></td></tr>
+    <tr><td>Report generation + delivery (email/Slack)</td><td><span class="badge b-done">Done</span></td></tr>
+    <tr><td>Orchestration pipeline + GitHub Actions deployment</td><td><span class="badge b-done">Done</span></td></tr>
+    <tr><td>Documentation (architecture, contributing, README)</td><td><span class="badge b-next">Ongoing</span></td></tr>
+    <tr><td>End-to-end run over 2 consecutive weeks (reliability)</td><td><span class="badge b-next">Ongoing</span></td></tr>
+  </table>
+
+  <h3>Known limitations</h3>
+  <ul>
+    <li><strong>Google News gives redirect URLs</strong> — full text can't be fetched for those items yet (they fall back to snippet/title).</li>
+    <li><strong>Title-similarity dedup is best-effort</strong> — headlines differing only by a name/number can over-merge. Exact dedup (by URL) is guaranteed; the threshold is tunable.</li>
+    <li><strong>Analyze cap (25/run)</strong> is a free-tier trade-off — not every collected article is summarized. Raising it is a config change, within quota.</li>
+  </ul>
+
+  <h3>Next steps</h3>
+  <ul>
+    <li>Test system end-to-end across multiple scenarios</li>
+    <li>Finish stabilization + Documentation </li>
+    <li>Run the pipeline unattended for 2 weeks to confirm reliability</li>
+
+  </ul>
+
+  <footer class="doc">
+    Sentinel — MVP strategic-intelligence pipeline (AI SaaS B2B) · Welyne / AI Commandos ·
+    Technical progress review.
+  </footer>
+
+</div>
+</body>
+</html>
