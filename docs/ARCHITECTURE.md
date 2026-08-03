@@ -134,7 +134,7 @@ kills the run** (requirement BF-07).
 | RSS feeds | `rss.py` | none | Tech media + official vendor blogs, list in `config.yaml → feeds`. Feeds on a vendor's own blog carry an `actor:` attribution. |
 | Hacker News | `hackernews.py` | none | Algolia HN Search API (official). Ask/Show HN posts have no external URL → falls back to the HN discussion page. |
 | Product Hunt | `producthunt.py` | `PRODUCTHUNT_TOKEN` | GraphQL v2, newest posts. Skips cleanly if the token is absent. |
-| Google News | `googlenews.py` | none | RSS search per keyword (`config.yaml → discovery.queries`). ⚠️ Links are **redirect URLs on news.google.com** — robots-blocked, so full text can't be fetched for these (a resolver is a known TODO). |
+| Google News | `googlenews.py` | none | RSS search per keyword (`config.yaml → discovery.queries`). ⚠️ Links are **redirect shells on news.google.com** — robots-blocked, so full text can't be fetched for these. `resolve.py` attempts canonicalization but, as measured, cannot resolve Google's current link format (see §5.3) — these items stay **title/snippet-only**. |
 | GNews | `gnews.py` | `GNEWS_API_KEY` | **Discovery layer only**: 100 req/day, 10 articles/req, truncated snippets. It finds candidate URLs; it never provides content (`content=None` by design). |
 
 Why RSS/APIs and not scraping? GitHub runner IPs are datacenter IPs; Cloudflare-protected
@@ -181,6 +181,25 @@ chars). It is deliberately paranoid:
 Fetched text is written back to `articles.content` (`set_content`), so each page is
 fetched **at most once ever**. On the next run the text comes from the DB. When fetch
 fails, the LLM falls back to the stored snippet; worst case, the title.
+
+**Redirect canonicalization (`collect/resolve.py`).** Aggregator links are redirect
+shells, not article URLs, which blocks full-text fetch (robots) and pollutes URL dedup.
+`resolve.py` rewrites them to the publisher URL where possible — offline base64 decode
+first (free, instant), HTTP redirect-follow as an opt-in fallback. It never raises and
+keeps the original URL on failure.
+
+⚠️ **Measured (Aug 2026): neither strategy resolves Google News' current format.**
+Offline decode 0/8 live links (Google now emits internal-id payloads, nothing to
+decode); HTTP follow 0/5 (302 → ~590 KB JS interstitial still on `news.google.com`,
+containing no publisher URL — it's resolved client-side). Resolving today's form would
+need Google's undocumented internal batch endpoint, which is too fragile for an
+unattended pipeline. Consequences:
+- `collect_googlenews(allow_network=False)` is the **default** — the network fallback
+  costs ~0.5 s/article (hundreds per run ≈ minutes) for zero measured gain;
+- Google News items stay **title/snippet-only** for the LLM. Richer sourcing comes from
+  RSS feeds (full text works there) and, for research reports, search grounding.
+The module is retained because it is free, instant, correct for the legacy/`/read/`
+forms, and is the building block for resolving other redirect shells.
 
 ### 5.4 ANALYZE — the tiered LLM layer
 
@@ -424,12 +443,24 @@ Built and tested (Phases 0–8): config/logging, persistence + keep-alive, all f
 collectors + full-text, filter/dedup, LLM analysis, trends, report, delivery, and the
 orchestrating pipeline.
 
-Remaining:
-- **Phase 9 — deployment**: `.github/workflows/weekly.yml` (cron, UTC, Monday-morning
-  CET/CEST) + `keepalive.yml` (every 3–4 days) + GitHub Secrets wiring.
-- **Phase 10 — stabilization**: end-to-end hardening, README polish, example report,
-  two unattended consecutive weekly runs.
-- **Backfill** (`scripts/backfill.py`): seed `trends` with past weeks so the first real
-  report can already distinguish NEW from ACCELERATING.
-- **Known TODO**: resolve Google News redirect URLs to real publisher URLs before
-  full-text fetch/dedup (currently those articles are snippet/title-only).
+Also delivered: GitHub Actions deployment (`weekly.yml` + `keepalive.yml`), stabilization
+and docs, and the historical `scripts/backfill.py`.
+
+**In progress — parameterized report requests (v2).** The team specified two new
+capabilities: a periodic ~3000-word deep-research report parameterized by theme /
+language / geography / time horizon / sector / objective, and a competitor-comparison
+report. Foundations landed first:
+- `period.py` — week/month/quarter/ad-hoc reporting periods (byte-compatible with the
+  existing ISO-week helpers);
+- `collect/dated.py` — arbitrary date-bounded discovery queries;
+- `GeminiProvider` generation knobs (`max_output_tokens`, `tools`, `system_instruction`, …)
+  and `generate_detailed()` for truncation detection + grounding metadata;
+- additive `reports` columns + the `report_sources` citation ledger (A/B/C tiers);
+- a golden-file snapshot test guarding the weekly report against regressions.
+
+Remaining: request profiles (YAML) + settings overlay, search grounding + the three-tier
+citation policy, the two report generators, and per-request scheduling.
+
+**Known limitation** (measured, not merely unimplemented): Google News links cannot be
+resolved to publisher URLs with any free method — see §5.3. Those items remain
+title/snippet-only.

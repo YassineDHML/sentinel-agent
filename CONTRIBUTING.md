@@ -75,8 +75,12 @@ pytest -k dedup              # by keyword
 
 ## Known TODOs (good first issues)
 
-- Resolve Google News **redirect URLs** to the real publisher URL before full-text
-  fetch/dedup (currently those items are snippet/title only). See `collect/googlenews.py`.
+- ~~Resolve Google News redirect URLs~~ — **attempted and closed off**, see
+  `collect/resolve.py`. Both free strategies were implemented and measured against live
+  data (Aug 2026): offline base64 decode 0/8, HTTP redirect-follow 0/5. Google now uses
+  internal-id payloads plus a JS interstitial with no publisher URL in the HTML. Don't
+  retry these two approaches without new evidence; the network fallback is off by default
+  because it costs ~0.5 s/article for nothing. Google News items stay title/snippet-only.
 - Cross-**run** title dedup against DB history (currently dedup is within-batch + exact
   URL across runs).
 - Raise the weekly `--limit` in `weekly.yml` if you want fuller reports (watch the

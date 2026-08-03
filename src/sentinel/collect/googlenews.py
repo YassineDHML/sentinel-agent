@@ -1,8 +1,11 @@
 """Google News RSS search — keyword discovery, no API key (spec BF-01).
 
 Queries ``news.google.com/rss/search?q=<keyword>`` and parses the resulting RSS
-with feedparser. Google News item links are redirect URLs; that's fine — the
-full-text fetcher resolves them later for articles that pass the relevance filter.
+with feedparser. Google News item links are opaque ``news.google.com`` redirect
+shells, not publisher URLs, so :func:`collect_googlenews` resolves them to the
+true publisher URL (see :mod:`sentinel.collect.resolve`) *before* handing them to
+processing — otherwise full-text extraction is blocked by robots.txt and both
+dedup layers would key off the redirect URL.
 
 Manual smoke test:
     python -m sentinel.collect.googlenews
@@ -17,6 +20,7 @@ import feedparser
 from ..config import load_settings
 from ..logging_conf import get_logger, setup_logging
 from .base import graceful, make_article
+from .resolve import resolve_articles
 
 logger = get_logger("collect.googlenews")
 
@@ -56,14 +60,31 @@ def parse_googlenews(source: object, *, query: str | None = None) -> list[dict]:
 
 
 @graceful("googlenews")
-def collect_googlenews(queries: list[str]) -> list[dict]:
-    """Run each discovery query against Google News RSS. Failures are isolated."""
+def collect_googlenews(queries: list[str], *, resolve: bool = True,
+                       allow_network: bool = False) -> list[dict]:
+    """Run each discovery query against Google News RSS. Failures are isolated.
+
+    Item links are ``news.google.com`` redirect shells. When ``resolve`` is true
+    (default) they are rewritten in place to the publisher URL *where that is
+    possible offline*, so downstream full-text fetch and dedup can key off the real
+    article.
+
+    ``allow_network`` defaults to **False** deliberately. Measured against live
+    Google News output (Aug 2026): the offline decode resolves 0/8 links and the
+    HTTP-follow fallback 0/5 — Google now issues internal-id payloads and answers
+    the redirect with a JS interstitial that contains no publisher URL. Enabling
+    the network path therefore costs ~0.5 s per article (hundreds of articles per
+    run) for no measurable gain. Kept as an opt-in switch in case Google's
+    behaviour changes. See :mod:`sentinel.collect.resolve`.
+    """
     articles: list[dict] = []
     for query in queries:
         try:
             articles.extend(parse_googlenews(build_search_url(query), query=query))
         except Exception as exc:  # noqa: BLE001
             logger.warning("Google News query %r failed: %s", query, exc)
+    if resolve:
+        resolve_articles(articles, allow_network=allow_network)
     logger.info("Google News: collected %d article(s) for %d query(ies).", len(articles), len(queries))
     return articles
 

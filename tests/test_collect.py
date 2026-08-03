@@ -4,13 +4,14 @@ fetch paths are exercised with mocked HTTP. No live network calls, no secrets.
 
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from sentinel.collect import base
-from sentinel.collect import fulltext, gnews, googlenews, hackernews, producthunt, rss
+from sentinel.collect import fulltext, gnews, googlenews, hackernews, producthunt, resolve, rss
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -305,3 +306,178 @@ def test_fetch_fulltext_honors_retry_after_header(monkeypatch):
     text = fulltext.fetch_fulltext("https://ex.com/a", delay=0)
     assert text and "flagship model" in text
     assert waits == [5.0]  # honored the numeric Retry-After
+
+
+# --------------------------------------------------------------------------- #
+# resolve (Google News redirect resolution)
+# --------------------------------------------------------------------------- #
+def _make_gnews_url(publisher_url: str) -> str:
+    """Build a Google-News-style redirect link that base64-embeds ``publisher_url``.
+
+    Mimics the older payload shape (``\\x08\\x13\\x22<len><url>...``), which
+    base64url-encodes to a ``CBMi...`` segment — exactly what the offline decoder
+    keys off.
+    """
+    body = publisher_url.encode("utf-8")
+    raw = b"\x08\x13\x22" + bytes([len(body)]) + body + b"\xd2\x01\x08trailing"
+    payload = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    return f"https://news.google.com/rss/articles/{payload}?oc=5"
+
+
+def test_is_redirect_url_detects_google_news_only():
+    assert resolve.is_redirect_url("https://news.google.com/rss/articles/CBMiABC?oc=5")
+    assert not resolve.is_redirect_url("https://techcrunch.com/2026/07/01/story")
+    assert not resolve.is_redirect_url(None)
+
+
+def test_decode_google_news_url_extracts_publisher_url():
+    real = "https://techcrunch.com/2026/07/01/openai-launch"
+    decoded = resolve.decode_google_news_url(_make_gnews_url(real))
+    assert decoded == real
+
+
+def test_decode_google_news_url_returns_none_without_embedded_url():
+    # A payload that decodes to bytes with no plain http(s) URL.
+    payload = base64.urlsafe_b64encode(b"\x08\x13\x22no-url-here").decode().rstrip("=")
+    url = f"https://news.google.com/rss/articles/{payload}?oc=5"
+    assert resolve.decode_google_news_url(url) is None
+
+
+def test_resolve_redirect_passes_through_non_redirect():
+    url = "https://theverge.com/story"
+    assert resolve.resolve_redirect(url) == url
+
+
+def test_resolve_redirect_prefers_offline_decode(monkeypatch):
+    # Network must NOT be touched when the offline decode already succeeds.
+    def boom(*a, **k):
+        raise AssertionError("follow_redirect should not be called")
+
+    monkeypatch.setattr(resolve, "follow_redirect", boom)
+    real = "https://arstechnica.com/ai/2026/07/model"
+    assert resolve.resolve_redirect(_make_gnews_url(real)) == real
+
+
+def test_resolve_redirect_falls_back_to_http_follow(monkeypatch):
+    # Undecodable payload -> HTTP follow captures the final publisher URL.
+    monkeypatch.setattr(resolve, "decode_google_news_url", lambda url: None)
+
+    class _Resp:
+        url = "https://venturebeat.com/ai/real-article"
+
+        def close(self):
+            pass
+
+    class _Session:
+        def get(self, url, **kw):
+            assert kw["allow_redirects"] is True
+            assert "User-Agent" in kw["headers"]
+            return _Resp()
+
+    out = resolve.resolve_redirect(
+        "https://news.google.com/rss/articles/OPAQUE?oc=5",
+        session=_Session(),
+    )
+    assert out == "https://venturebeat.com/ai/real-article"
+
+
+def test_resolve_redirect_keeps_original_when_all_fail(monkeypatch):
+    monkeypatch.setattr(resolve, "decode_google_news_url", lambda url: None)
+    monkeypatch.setattr(resolve, "follow_redirect", lambda url, **kw: None)
+    original = "https://news.google.com/rss/articles/OPAQUE?oc=5"
+    assert resolve.resolve_redirect(original) == original
+
+
+def test_resolve_redirect_no_network_skips_http(monkeypatch):
+    monkeypatch.setattr(resolve, "decode_google_news_url", lambda url: None)
+
+    def boom(*a, **k):
+        raise AssertionError("follow_redirect should not run when allow_network=False")
+
+    monkeypatch.setattr(resolve, "follow_redirect", boom)
+    original = "https://news.google.com/rss/articles/OPAQUE?oc=5"
+    assert resolve.resolve_redirect(original, allow_network=False) == original
+
+
+def test_decode_never_resolves_into_another_redirect():
+    """A payload embedding another news.google.com link must not be accepted."""
+    nested = _make_gnews_url("https://news.google.com/rss/articles/INNER?oc=5")
+    assert resolve.decode_google_news_url(nested) is None
+
+
+def test_follow_redirect_ignores_chain_stuck_on_google():
+    class _Resp:
+        url = "https://news.google.com/consent"  # never left the redirect host
+
+        def close(self):
+            pass
+
+    class _Session:
+        def get(self, url, **kw):
+            return _Resp()
+
+    assert resolve.follow_redirect("https://news.google.com/x", session=_Session()) is None
+
+
+def test_follow_redirect_returns_none_on_error():
+    class _Session:
+        def get(self, url, **kw):
+            raise RuntimeError("network down")
+
+    assert resolve.follow_redirect("https://news.google.com/x", session=_Session()) is None
+
+
+def test_resolve_articles_rewrites_url_in_place():
+    real = "https://techcrunch.com/2026/07/01/story"
+    articles = [
+        base.make_article(_make_gnews_url(real), "Google News (TechCrunch)", title="Story"),
+        base.make_article("https://theverge.com/other", "The Verge", title="Other"),
+    ]
+    resolve.resolve_articles(articles, allow_network=False)
+    assert articles[0]["url"] == real                    # redirect -> publisher
+    assert articles[1]["url"] == "https://theverge.com/other"  # untouched
+
+
+def test_collect_googlenews_resolves_before_returning(monkeypatch):
+    real = "https://techcrunch.com/2026/07/01/agents"
+    gnews_url = _make_gnews_url(real)
+
+    def fake_parse(source, *, query=None):
+        return [base.make_article(gnews_url, "Google News (TechCrunch)", title="Agents")]
+
+    monkeypatch.setattr(googlenews, "parse_googlenews", fake_parse)
+    out = googlenews.collect_googlenews(["AI agents"])
+    assert len(out) == 1
+    assert out[0]["url"] == real  # canonical publisher URL, not a news.google.com link
+
+
+def test_collect_googlenews_does_not_hit_network_by_default(monkeypatch):
+    """The HTTP-follow fallback must stay OFF by default.
+
+    Measured against live Google News it resolves nothing while costing ~0.5s per
+    article; with hundreds of articles per run that is minutes of wasted requests.
+    """
+    def fake_parse(source, *, query=None):
+        return [base.make_article(
+            "https://news.google.com/rss/articles/OPAQUE?oc=5", "Google News", title="X")]
+
+    def boom(*a, **k):
+        raise AssertionError("collect_googlenews must not follow redirects by default")
+
+    monkeypatch.setattr(googlenews, "parse_googlenews", fake_parse)
+    monkeypatch.setattr(resolve, "follow_redirect", boom)
+    out = googlenews.collect_googlenews(["q"])
+    # unresolvable link is kept as-is rather than dropped
+    assert out[0]["url"] == "https://news.google.com/rss/articles/OPAQUE?oc=5"
+
+
+def test_collect_googlenews_can_skip_resolution(monkeypatch):
+    """resolve=False leaves redirect URLs intact (offline/debug path)."""
+    gnews_url = _make_gnews_url("https://techcrunch.com/x")
+
+    def fake_parse(source, *, query=None):
+        return [base.make_article(gnews_url, "Google News", title="X")]
+
+    monkeypatch.setattr(googlenews, "parse_googlenews", fake_parse)
+    out = googlenews.collect_googlenews(["q"], resolve=False)
+    assert out[0]["url"] == gnews_url
