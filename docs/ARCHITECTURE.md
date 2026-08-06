@@ -361,6 +361,51 @@ worst case for that. Two defenses, both required:
 | Supabase | 500 MB, pauses after 7 idle days | keep-alive + retry/backoff |
 | Gmail | normal account limits | one email/week — negligible |
 
+## 8b. Request profiles — parameterizing a run ({A}..{F})
+
+The original pipeline watched one hardcoded theme. A **request profile** supplies the six
+parameters the team's spec asks the user for, and turns the pipeline into a parameterized
+engine — without changing a single stage signature.
+
+```
+requests/<slug>.yaml  ──load_profile──►  RequestProfile ({A}..{F})
+                                              │
+                          apply_profile(settings, profile)
+                                              ▼
+                                   Settings (a frozen copy)
+                                              │
+              ── unchanged stage calls ───────┴──────────────────
+              collect → process → analyze → trends → report → deliver
+```
+
+| Var | Profile key | Effect |
+|---|---|---|
+| {A} theme | `theme` | injected into the summarize / classify / deep-analysis prompts |
+| {B} language | `language` | report narrative + template labels + source locale |
+| {C} geographic zone | `geo_zone` | Google News `hl`/`gl`/`ceid`, GNews `lang`/`country` |
+| {D} time horizon | `horizon.past_months` / `future_years` | retrospective window + projection span |
+| {E} sector focus | `sector` | narrows the analysis lens |
+| {F} objective | `objective` | orients opportunities/recommendations |
+
+Key properties, each pinned by a test:
+- **`apply_profile(settings, None) is settings`** — no profile means literally no change.
+- **Only keys the profile sets are overridden**; everything else keeps its `config.yaml`
+  value, so the production weekly watch is untouched.
+- **The (`en`, `world`) locale reproduces the historical URLs byte-for-byte** — the
+  Google News URL and the GNews params are identical to the previously hardcoded ones.
+- **Prompt/template defaults reproduce the original text**, so the English report is
+  byte-identical (the golden snapshot test is the tripwire).
+- **A profile overriding `topics` is refused write access to `trends`** — that table is
+  keyed `UNIQUE(topic, week)` *globally*, so two taxonomies would overwrite each other.
+  The run still produces its report; only trend persistence is skipped, with a warning.
+
+Labels live in `report/i18n.py` (`HEADINGS[lang]`); the template holds no English.
+
+Run one:
+```bash
+python -m sentinel.pipeline --dry-run --profile requests/ai_healthcare_fr.yaml
+```
+
 ## 9. Configuration: two files, one rule
 
 **The rule: secrets in the environment, everything else in `config.yaml`.**

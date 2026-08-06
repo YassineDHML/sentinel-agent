@@ -55,6 +55,53 @@ def test_summary_prompt_numbers_articles_and_asks_for_json():
     assert "JSON" in prompt and "3 to 5" in prompt
 
 
+def test_default_prompts_reproduce_historical_text():
+    """Calling the builders without theme/language must emit the original prompts."""
+    items = [(1, _art("u1", "T"))]
+    summary = build_summary_prompt(items)
+    assert "covering the AI SaaS B2B sector" in summary
+    assert "3 to 5 short lines in English" in summary
+    # the JSON example must survive .format() unescaped
+    assert '{"1": "First summary...", "2": "Second summary..."}' in summary
+
+
+def test_summary_prompt_accepts_theme_and_language():
+    items = [(1, _art("u1", "T"))]
+    prompt = build_summary_prompt(items, theme="AI in healthcare", language="French")
+    assert "covering AI in healthcare" in prompt
+    assert "short lines in French" in prompt
+    assert "AI SaaS B2B" not in prompt
+
+
+def test_classify_prompt_accepts_theme():
+    prompt = build_classify_prompt([(1, _art("u1", "T"))], CANON, theme="AI in healthcare")
+    assert "AI in healthcare" in prompt
+    # the closed-taxonomy instruction survives
+    assert "STRICTLY" in prompt
+
+
+def test_language_name_mapping():
+    from sentinel.analyze.prompts import language_name
+
+    assert language_name("fr") == "French"
+    assert language_name("en") == "English"
+    assert language_name(None) == "English"
+    assert language_name("xx") == "xx"  # unknown code passed through, not crashed
+
+
+def test_deep_analysis_prompt_defaults_and_overrides():
+    from sentinel.analyze.deep_analysis import build_deep_analysis_prompt
+
+    arts = [{"url": "u", "title": "T", "summary": "s", "actor": "A", "topics": []}]
+    default = build_deep_analysis_prompt(arts, "digest")
+    assert "on the AI SaaS B2B sector for the CEO of Welyne" in default
+
+    custom = build_deep_analysis_prompt(arts, "digest", "fr",
+                                        theme="IA en santé", company="Acme")
+    assert "on IA en santé for the CEO of Acme" in custom
+    assert "in French" in custom
+
+
 def test_classify_prompt_embeds_all_canonical_tags():
     items = [(1, _art("u1", "x"))]
     prompt = build_classify_prompt(items, CANON)

@@ -28,8 +28,18 @@ from ..analyze.trends import (
     week_bounds_iso,
 )
 from ..logging_conf import get_logger
+from .i18n import headings
 
 logger = get_logger("report.builder")
+
+# The organisation the report is written for. Kept here (rather than inline in a
+# prompt/template) so it is configurable and appears in exactly one place.
+DEFAULT_COMPANY = "Welyne"
+
+
+def company_name(settings: Any) -> str:
+    """The organisation the report addresses, from config if set."""
+    return getattr(settings.app, "company", None) or DEFAULT_COMPANY
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 TEMPLATES_DIR = REPO_ROOT / "templates"
@@ -86,6 +96,38 @@ def _get_env(template_dir: Path | None = None) -> Environment:
     )
 
 
+def context_words(context: dict[str, Any]) -> list[str]:
+    """Words of narrative text in a report context (for the stored word count).
+
+    Counts only LLM-authored narrative — not headings, links or the sources list —
+    so the number means "how much analysis did this report actually contain".
+    """
+    chunks: list[str] = []
+    for item in context.get("executive_summary") or []:
+        chunks.append(str(item.get("text", "")))
+    for entry in context.get("competitive_watch") or []:
+        chunks.append(str(entry.get("highlights", "")))
+    for item in context.get("opportunities") or []:
+        chunks.append(str(item.get("text", "")))
+    return " ".join(chunks).split()
+
+
+def profile_params(profile: Any | None) -> dict[str, Any] | None:
+    """Serialize a request profile's {A}..{F} for the ``reports.params`` column."""
+    if profile is None:
+        return None
+    return {
+        "slug": getattr(profile, "slug", None),
+        "theme": getattr(profile, "theme", None),
+        "language": getattr(profile, "language", None),
+        "geo_zone": getattr(profile, "geo_zone", None),
+        "sector": getattr(profile, "sector", None),
+        "objective": getattr(profile, "objective", None),
+        "horizon_past_months": getattr(profile, "horizon_past_months", None),
+        "horizon_future_years": getattr(profile, "horizon_future_years", None),
+    }
+
+
 def _title_lookup(articles: list[dict]) -> dict[str, dict[str, Any]]:
     """Map url -> {title, source} for resolving citations to displayable links."""
     return {a["url"]: {"title": a.get("title"), "source": a.get("source")} for a in articles if a.get("url")}
@@ -130,11 +172,17 @@ def build_report_context(
     sources_consulted = all_sources[:MAX_SOURCES_LISTED]
     sources_overflow = max(0, len(all_sources) - MAX_SOURCES_LISTED)
 
+    profile = getattr(settings, "profile", None)
+    language = settings.app.report_language
     return {
         "app_name": settings.app.name,
         "week": week,
         "generated_at": generated_at,
-        "report_language": settings.app.report_language,
+        "report_language": language,
+        # Localized labels so the template carries no hardcoded language.
+        "labels": headings(language, company=company_name(settings)),
+        "theme": getattr(profile, "theme", None),
+        "request_slug": getattr(profile, "slug", None),
         "executive_summary": [
             {"text": i.text, "sources": _cited_for_template(i.sources, lookup)}
             for i in deep_analysis.executive_summary
@@ -171,6 +219,8 @@ def generate_report(
     compute_deep: bool = True,
     output_dir: Path | str | None = None,
     generated_at: str | None = None,
+    report_type: str = WEEKLY_REPORT_TYPE,
+    request_slug: str | None = None,
 ) -> Path:
     """Build, render, persist, and locally save the weekly report.
 
@@ -219,14 +269,27 @@ def generate_report(
     )
     html = render_report_html(context)
 
+    profile = getattr(settings, "profile", None)
     try:
-        report_repo.store(week, html)
+        report_repo.store(
+            week, html,
+            report_type=report_type,
+            request_slug=request_slug,
+            language=settings.app.report_language,
+            period_kind="week",
+            period_key=week,
+            period_start=start_iso,
+            period_end=end_iso,
+            word_count=len(context_words(context)),
+            params=profile_params(profile),
+        )
     except Exception as exc:  # noqa: BLE001 - the local file is the fallback record
         logger.error("Failed to persist report to DB (continuing, local copy still written): %s", exc)
 
     out_dir = Path(output_dir) if output_dir else DEFAULT_OUTPUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{week}.html"
+    out_path = report_output_path(week, report_type=report_type,
+                                  request_slug=request_slug, output_dir=out_dir)
     out_path.write_text(html, encoding="utf-8")
     logger.info("Report written to %s", out_path)
     return out_path

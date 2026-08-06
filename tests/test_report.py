@@ -178,6 +178,55 @@ def test_generate_report_lists_only_analyzed_articles(tmp_path):
     assert "OpenAI ships GPT-5" in html       # analyzed article listed as a source
 
 
+def test_headings_default_to_english_and_interpolate_company():
+    from sentinel.report.i18n import headings
+
+    en = headings("en", company="Welyne")
+    assert en["s1"] == "1. Executive Summary"
+    assert en["s4"] == "4. Opportunities for Welyne"
+    # unknown language falls back to English rather than raising
+    assert headings("xx")["s1"] == en["s1"]
+    assert headings(None)["s1"] == en["s1"]
+
+
+def test_french_headings_are_translated():
+    from sentinel.report.i18n import headings
+
+    fr = headings("fr", company="Welyne")
+    assert fr["s1"] == "1. Synthèse opérationnelle"
+    assert fr["s4"] == "4. Opportunités pour Welyne"
+    assert fr["accelerating"] == "En accélération"
+
+
+def test_every_language_defines_the_same_label_keys():
+    """A missing key would render an empty string in the template."""
+    from sentinel.report.i18n import HEADINGS
+
+    reference = set(HEADINGS["en"])
+    for lang, labels in HEADINGS.items():
+        assert set(labels) == reference, f"{lang} label keys differ from en"
+
+
+def test_report_renders_in_french_via_profile():
+    """End-to-end: a French profile produces a French report."""
+    import dataclasses
+
+    from sentinel.request import apply_profile, profile_from_dict
+
+    settings = apply_profile(
+        _settings(),
+        profile_from_dict({"slug": "fr_test", "theme": "IA en santé", "language": "fr"}),
+    )
+    ctx = build_report_context(WEEK, settings, ARTICLES, TREND_STATUSES, DEEP_ANALYSIS,
+                              generated_at="x")
+    html = render_report_html(ctx)
+    assert "1. Synthèse opérationnelle" in html
+    assert "3. Tendances détectées" in html
+    assert "1. Executive Summary" not in html
+    assert ctx["theme"] == "IA en santé"
+    assert 'lang="fr"' in html
+
+
 def test_report_output_path_preserves_weekly_naming(tmp_path):
     """The weekly watch must keep its historical output/<week>.html filename."""
     from sentinel.report.builder import report_output_path

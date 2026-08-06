@@ -15,6 +15,7 @@ Manual smoke test (needs GNEWS_API_KEY in .env):
 from __future__ import annotations
 
 import time
+from typing import Any
 
 from ..config import get_secret, load_settings
 from ..logging_conf import get_logger, setup_logging
@@ -53,24 +54,32 @@ def parse_gnews(payload: dict, *, query: str | None = None) -> list[dict]:
 
 
 def search_gnews(query: str, *, api_key: str, max_articles: int = MAX_PER_REQUEST,
-                 lang: str = "en") -> list[dict]:
-    """Run one GNews query. ``max_articles`` is clamped to the free-tier cap of 10."""
-    payload = http_get_json(
-        SEARCH_URL,
-        params={
-            "q": query,
-            "max": min(max_articles, MAX_PER_REQUEST),
-            "lang": lang,
-            "apikey": api_key,
-        },
-    )
+                 lang: str = "en", country: str | None = None) -> list[dict]:
+    """Run one GNews query. ``max_articles`` is clamped to the free-tier cap of 10.
+
+    ``country`` is only sent when supplied, so the default request is unchanged
+    from the original (``q``/``max``/``lang``/``apikey`` only).
+    """
+    params: dict[str, Any] = {
+        "q": query,
+        "max": min(max_articles, MAX_PER_REQUEST),
+        "lang": lang,
+        "apikey": api_key,
+    }
+    if country:
+        params["country"] = country
+    payload = http_get_json(SEARCH_URL, params=params)
     return parse_gnews(payload, query=query)
 
 
 @graceful("gnews")
 def collect_gnews(queries: list[str], *, api_key: str | None = None,
-                  max_articles: int = MAX_PER_REQUEST) -> list[dict]:
+                  max_articles: int = MAX_PER_REQUEST,
+                  lang: str = "en", country: str | None = None) -> list[dict]:
     """Discover candidates for each query, respecting the 1 req/sec rate limit.
+
+    ``lang``/``country`` come from the request locale ({B} x {C}); ``country`` is
+    omitted by default so the request matches the historical one.
 
     Returns [] (with a log) if no API key is configured.
     """
@@ -84,7 +93,10 @@ def collect_gnews(queries: list[str], *, api_key: str | None = None,
         if i > 0:
             _sleep(REQUEST_INTERVAL)  # stay under 1 req/sec
         try:
-            articles.extend(search_gnews(query, api_key=api_key, max_articles=max_articles))
+            articles.extend(search_gnews(
+                query, api_key=api_key, max_articles=max_articles,
+                lang=lang, country=country,
+            ))
         except Exception as exc:  # noqa: BLE001
             logger.warning("GNews query %r failed: %s", query, exc)
     logger.info("GNews: collected %d candidate(s) for %d query(ies).", len(articles), len(queries))

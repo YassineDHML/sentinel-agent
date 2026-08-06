@@ -13,12 +13,27 @@ from typing import Any
 # ~10-15 RPM budget isn't blown by oversized single calls.
 MAX_ARTICLE_CHARS = 1500
 
+# Defaults reproduce the historical single-theme prompts exactly, so an
+# unparameterized run sends byte-identical text.
+DEFAULT_THEME = "the AI SaaS B2B sector"
+DEFAULT_LANGUAGE = "English"
+
+# Language code -> name used inside prompts.
+LANGUAGE_NAMES: dict[str, str] = {"en": "English", "fr": "French"}
+
+
+def language_name(code: str | None) -> str:
+    """Prompt-friendly language name for a code, defaulting to English."""
+    if not code:
+        return DEFAULT_LANGUAGE
+    return LANGUAGE_NAMES.get(str(code).lower(), str(code))
+
 # --------------------------------------------------------------------------- #
 # Summarize
 # --------------------------------------------------------------------------- #
 SUMMARY_INSTRUCTIONS = """\
-You are a strategic-intelligence analyst covering the AI SaaS B2B sector.
-For each numbered article below, write a factual summary of 3 to 5 short lines in English.
+You are a strategic-intelligence analyst covering {theme}.
+For each numbered article below, write a factual summary of 3 to 5 short lines in {language}.
 
 Rules:
 - Ground every statement ONLY in the provided TITLE and TEXT. Do not add outside
@@ -27,13 +42,13 @@ Rules:
 - Plain text only: no preamble, no markdown, no bullet characters.
 
 Return ONLY a JSON object mapping each article number (as a string) to its summary
-string. Example: {"1": "First summary...", "2": "Second summary..."}"""
+string. Example: {{"1": "First summary...", "2": "Second summary..."}}"""
 
 # --------------------------------------------------------------------------- #
 # Classify
 # --------------------------------------------------------------------------- #
 CLASSIFY_INSTRUCTIONS_HEADER = """\
-You are classifying AI-sector news into a FIXED taxonomy.
+You are classifying news about {theme} into a FIXED taxonomy.
 Assign each numbered article zero or more topics chosen STRICTLY from this canonical list:"""
 
 CLASSIFY_INSTRUCTIONS_FOOTER = """\
@@ -62,15 +77,31 @@ def _article_block(items: list[tuple[int, dict]]) -> str:
     return "\n".join(lines)
 
 
-def build_summary_prompt(items: list[tuple[int, dict]]) -> str:
-    """Build the batched summarization prompt for ``(index, article)`` pairs."""
-    return f"{SUMMARY_INSTRUCTIONS}\n\nARTICLES:\n{_article_block(items)}"
+def build_summary_prompt(
+    items: list[tuple[int, dict]],
+    *,
+    theme: str = DEFAULT_THEME,
+    language: str = DEFAULT_LANGUAGE,
+) -> str:
+    """Build the batched summarization prompt for ``(index, article)`` pairs.
+
+    ``theme`` and ``language`` default to the historical values, so calling this
+    with only ``items`` produces exactly the original prompt.
+    """
+    instructions = SUMMARY_INSTRUCTIONS.format(theme=theme, language=language)
+    return f"{instructions}\n\nARTICLES:\n{_article_block(items)}"
 
 
-def build_classify_prompt(items: list[tuple[int, dict]], canonical_tags: list[str]) -> str:
+def build_classify_prompt(
+    items: list[tuple[int, dict]],
+    canonical_tags: list[str],
+    *,
+    theme: str = DEFAULT_THEME,
+) -> str:
     """Build the batched classification prompt, embedding the canonical tag list."""
     tag_list = "\n".join(f"- {tag}" for tag in canonical_tags)
+    header = CLASSIFY_INSTRUCTIONS_HEADER.format(theme=theme)
     return (
-        f"{CLASSIFY_INSTRUCTIONS_HEADER}\n{tag_list}\n\n"
+        f"{header}\n{tag_list}\n\n"
         f"{CLASSIFY_INSTRUCTIONS_FOOTER}\n\nARTICLES:\n{_article_block(items)}"
     )

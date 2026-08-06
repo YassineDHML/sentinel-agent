@@ -41,6 +41,12 @@ first; for *requirements*, the spec is [`docs/cahier_des_charges_sentinel.md`](d
 **Add a monitored actor / feed / keyword** — edit `config.yaml` (`actors`, `feeds`,
 `relevance`, `discovery.queries`). No code change.
 
+**Watch a different theme / language / region** — add a `requests/<slug>.yaml` request
+profile and run with `--profile`. Do **not** repurpose `config.yaml`'s theme-specific keys:
+that would change the production weekly watch. See `docs/ARCHITECTURE.md` §8b.
+A profile that overrides `topics` is deliberately refused write access to the `trends`
+table (globally keyed `UNIQUE(topic, week)`) — it still gets its report.
+
 **Add a canonical topic** — add it to `config.yaml → topics`. The LLM will start using
 it; historical weeks simply won't have it. Keep the list ~15–25 tags (spec BF-03).
 

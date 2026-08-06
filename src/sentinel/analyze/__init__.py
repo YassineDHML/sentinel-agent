@@ -17,6 +17,7 @@ from ..logging_conf import get_logger
 from .classify import parse_classify_response
 from .deep_analysis import DeepAnalysis, run_deep_analysis
 from .llm import GeminiProvider, GroqProvider, LLMClient, LLMError
+from .prompts import language_name
 from .summarize import parse_summary_response
 
 logger = get_logger("analyze")
@@ -57,8 +58,14 @@ def analyze_articles(
         return []
     client = client or LLMClient.from_settings(settings)
 
-    summaries = client.summarize_batch(articles)
-    topics_map = client.classify_batch(articles, settings.topics)
+    # {A} theme and {B} language come from the active request profile, if any.
+    # Without a profile these stay None and the prompts keep their original text.
+    profile = getattr(settings, "profile", None)
+    theme = getattr(profile, "theme", None)
+    language = language_name(getattr(settings.app, "report_language", None)) if profile else None
+
+    summaries = client.summarize_batch(articles, theme=theme, language=language)
+    topics_map = client.classify_batch(articles, settings.topics, theme=theme)
 
     analyzed: list[dict] = []
     persisted = 0

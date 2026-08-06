@@ -1,0 +1,73 @@
+# Demonstration profile: a completely different theme, language and geography from
+# the production weekly watch — the proof that the pipeline is parameterized.
+#
+# Run it with:
+#   python -m sentinel.pipeline --dry-run --profile requests/ai_healthcare_fr.yaml
+
+slug: ai_healthcare_fr
+report_type: deep_research
+
+# {A} theme — arbitrary free text, nothing about it is hardcoded anywhere
+theme: L'intelligence artificielle dans le secteur de la santé
+
+# {B} report language
+language: fr
+
+# {C} geographic zone — drives source language/region parameters
+geo_zone: france
+
+# {D} time horizon: 12 months back, 3-5 year projection
+horizon:
+  past_months: 12
+  future_years: 5
+
+# {E} sector focus
+sector: santé
+
+# {F} the executive's priority objective
+objective: growth
+
+cadence: monthly
+word_target: 3000
+word_tolerance: 250
+
+# Discovery queries for this theme (replaces config.yaml's AI-vendor queries)
+discovery_queries:
+  - "intelligence artificielle santé"
+  - "IA diagnostic médical"
+  - "AI healthcare regulation Europe"
+  - "hôpital intelligence artificielle"
+  - "medical imaging AI"
+  - "santé numérique investissement"
+
+# Relevance vocabulary for this theme
+relevance_keywords:
+  - intelligence artificielle
+  - IA
+  - AI
+  - santé
+  - médical
+  - hôpital
+  - diagnostic
+  - imagerie
+  - patient
+  - healthcare
+  - clinical
+  - biotech
+relevance_exclude:
+  - horoscope
+  - crypto
+
+# Named research houses whose published work should be sought for benchmarks.
+# (Used by the deep-research sourcing step; see the citation policy.)
+benchmark_houses:
+  - McKinsey
+  - BCG
+  - Deloitte
+  - Gartner
+  - IDC
+  - OCDE
+
+# NOTE: `topics` is intentionally NOT overridden. A custom taxonomy is refused
+# write access to the shared `trends` table (keyed UNIQUE(topic, week) globally)
+# until trends are namespaced per request.

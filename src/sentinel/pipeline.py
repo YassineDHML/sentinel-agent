@@ -54,6 +54,8 @@ from .deliver.email import send_report
 from .deliver.slack import notify
 from .logging_conf import get_logger, setup_logging
 from .process import process_articles
+from .request import apply_profile, assert_trend_safe, load_profile, profile_of, resolve_locale
+from .request.locale import zone_is_global
 
 logger = get_logger("pipeline")
 
@@ -195,12 +197,21 @@ def run_pipeline(
         deep_ok = bool(deep_available)
 
     # --- 1. collect -------------------------------------------------------- #
+    # A request profile ({B} language x {C} zone) selects the source locale; without
+    # one these resolve to the historical English/US parameters.
+    profile = profile_of(settings)
+    locale = profile.locale if profile is not None else resolve_locale()
+    gn_params = locale.googlenews_params()
+    gnews_kwargs = locale.gnews_params(
+        include_country=profile is not None and not zone_is_global(profile.geo_zone)
+    )
     sources = collectors or {
         "rss": lambda: collect_rss(settings.feeds),
         "hackernews": lambda: collect_hackernews(settings.discovery_queries),
         "producthunt": lambda: collect_producthunt(),
-        "googlenews": lambda: collect_googlenews(settings.discovery_queries),
-        "gnews": lambda: collect_gnews(settings.discovery_queries),
+        "googlenews": lambda: collect_googlenews(
+            settings.discovery_queries, locale_params=gn_params),
+        "gnews": lambda: collect_gnews(settings.discovery_queries, **gnews_kwargs),
     }
     raw: list[dict] = []
     with _Timer() as t:
@@ -273,13 +284,17 @@ def run_pipeline(
 
     # --- 5. trends (record this week + statuses vs history) ---------------- #
     with _Timer() as t:
-        t_repo = _MemoryTrendRepo() if dry_run else trend_repo
+        # A profile with a custom taxonomy must not write to the shared trends table
+        # (keyed UNIQUE(topic, week) globally); it still gets statuses in-memory.
+        trend_safe = assert_trend_safe(settings)
+        t_repo = _MemoryTrendRepo() if (dry_run or not trend_safe) else trend_repo
         record_week_trends(analyzed, t_repo, week=week)
         weeks_back = getattr(settings.app, "weeks_history", None) or DEFAULT_WEEKS_BACK
         statuses = compute_trend_statuses(t_repo, week=week, weeks_back=weeks_back)
         digest = build_trend_digest(statuses, week=week)
     _log_stage(result, "trends", len(statuses), t.elapsed,
-               note="dry-run: vs empty history" if dry_run else "")
+               note="dry-run: vs empty history" if dry_run
+               else ("" if trend_safe else "not persisted (custom taxonomy)"))
 
     # --- 6. report (deep analysis + render + archive) ----------------------- #
     with _Timer() as t:
@@ -289,6 +304,7 @@ def run_pipeline(
             build_report_context,
             generate_report,
             render_report_html,
+            report_output_path,
         )
         from .analyze.deep_analysis import run_deep_analysis
 
@@ -300,19 +316,28 @@ def run_pipeline(
                 result.degradations.append("deep analysis failed: report omits narrative sections")
                 logger.warning("DEGRADED: deep analysis unavailable; report keeps trends+sources only.")
 
+        # A profiled run must not overwrite the weekly watch's output file, so its
+        # report type/slug qualify the filename; unprofiled runs keep <week>.html.
+        report_type = getattr(profile, "report_type", None) or "weekly"
+        if report_type == "weekly_watch":
+            report_type = "weekly"
+        slug = getattr(profile, "slug", None)
+
         if dry_run:
             context = build_report_context(week, settings, analyzed, statuses, deep,
                                            generated_at=generated_at)
             html = render_report_html(context)
             DEFAULT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-            report_path = DEFAULT_OUTPUT_DIR / f"{week}.dryrun.html"
+            report_path = report_output_path(week, report_type=report_type,
+                                             request_slug=slug, suffix="dryrun")
             report_path.write_text(html, encoding="utf-8")
         else:
             # deep analysis was already computed above (or intentionally skipped);
             # compute_deep=False prevents a second heavy Gemini call.
             report_path = generate_report(settings, article_repo, trend_repo, report_repo,
                                           week=week, deep_analysis=deep, compute_deep=False,
-                                          generated_at=generated_at)
+                                          generated_at=generated_at,
+                                          report_type=report_type, request_slug=slug)
             html = report_path.read_text(encoding="utf-8")
     result.report_path = report_path
     _log_stage(result, "report", 1, t.elapsed, note=str(report_path))
@@ -358,11 +383,16 @@ def _main() -> int:
     parser.add_argument("--since", default=None, help="drop articles published before this date (reruns)")
     parser.add_argument("--limit", type=int, default=DEFAULT_ANALYZE_LIMIT,
                         help=f"max articles to analyze this run (default {DEFAULT_ANALYZE_LIMIT})")
+    parser.add_argument("--profile", default=None,
+                        help="request profile YAML (e.g. requests/ai_healthcare_fr.yaml) "
+                             "supplying the {A}..{F} parameters")
     args = parser.parse_args()
 
     setup_logging()
     try:
         settings = load_settings()
+        if args.profile:
+            settings = apply_profile(settings, load_profile(args.profile))
     except ConfigError as exc:
         logger.error("Config invalid: %s", exc)
         return 1

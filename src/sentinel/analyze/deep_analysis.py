@@ -29,8 +29,8 @@ logger = get_logger("analyze.deep_analysis")
 _LANGUAGE_NAMES = {"en": "English", "fr": "French"}
 
 DEEP_ANALYSIS_INSTRUCTIONS = """\
-You are a strategic-intelligence analyst producing a weekly report on the AI \
-SaaS B2B sector for the CEO of Welyne. Write the report content in {language}. \
+You are a strategic-intelligence analyst producing a weekly report on {theme} \
+for the CEO of {company}. Write the report content in {language}. \
 Source article titles/quotes may remain in their original English.
 
 You are given this week's articles (numbered, with title/summary/actor/topics) \
@@ -40,7 +40,7 @@ Produce:
 1. "executive_summary": 3 to 5 of the most important facts of the week.
 2. "competitive_watch": one entry per monitored actor that had notable activity
    this week, summarizing what they did.
-3. "opportunities": actionable opportunities or implications for Welyne, derived
+3. "opportunities": actionable opportunities or implications for {company}, derived
    strictly from the article content and trends provided.
 
 HARD RULE — anti-hallucination: every item in every section MUST include a
@@ -81,11 +81,28 @@ def _language_name(code: str) -> str:
     return _LANGUAGE_NAMES.get(code, code)
 
 
+DEFAULT_THEME = "the AI SaaS B2B sector"
+DEFAULT_COMPANY = "Welyne"
+
+
 def build_deep_analysis_prompt(
-    articles: list[dict], trend_digest: str, report_language: str = "en"
+    articles: list[dict],
+    trend_digest: str,
+    report_language: str = "en",
+    *,
+    theme: str = DEFAULT_THEME,
+    company: str = DEFAULT_COMPANY,
 ) -> str:
-    """Build the single-call deep-analysis prompt for a week's articles."""
-    lines = [DEEP_ANALYSIS_INSTRUCTIONS.format(language=_language_name(report_language))]
+    """Build the single-call deep-analysis prompt for a week's articles.
+
+    ``theme`` and ``company`` default to the historical values so an
+    unparameterized run produces the original prompt.
+    """
+    lines = [
+        DEEP_ANALYSIS_INSTRUCTIONS.format(
+            language=_language_name(report_language), theme=theme, company=company
+        )
+    ]
     lines.append("\nTREND DIGEST:\n" + trend_digest)
     lines.append("\nARTICLES:")
     for i, article in enumerate(articles, 1):
@@ -184,7 +201,14 @@ def run_deep_analysis(
         return None
 
     client = client or LLMClient(GeminiProvider(settings.llm.gemini_model), fallback=None)
-    prompt = build_deep_analysis_prompt(articles, trend_digest, settings.app.report_language)
+    profile = getattr(settings, "profile", None)
+    prompt = build_deep_analysis_prompt(
+        articles,
+        trend_digest,
+        settings.app.report_language,
+        theme=getattr(profile, "theme", None) or DEFAULT_THEME,
+        company=getattr(settings.app, "company", None) or DEFAULT_COMPANY,
+    )
     try:
         text = client.generate(prompt)
     except Exception as exc:  # noqa: BLE001 - Gemini-only: no fallback, degrade gracefully

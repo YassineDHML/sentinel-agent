@@ -235,6 +235,82 @@ def test_slack_failure_never_fatal(monkeypatch, tmp_path):
     assert any("slack" in d.lower() for d in result.degradations)
 
 
+def test_profiled_run_does_not_clobber_weekly_output(monkeypatch, tmp_path):
+    """A profiled dry-run must write to its own file, not over the weekly report."""
+    monkeypatch.setattr("sentinel.report.builder.DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(pipe, "fetch_fulltext", lambda url: "x " * 200)
+    monkeypatch.setattr("sentinel.analyze.llm._sleep", lambda s: None)
+
+    from sentinel.request import apply_profile, profile_from_dict
+
+    client = LLMClient(FakeProvider(), fallback=None, batch_size=8, max_attempts=1)
+    common = dict(
+        dry_run=True, week="2026-W28",
+        collectors={"rss": lambda: list(RAW_BATCH)},
+        llm_client=client, deep_available=True,
+        article_repo=MemoryArticleRepo(), trend_repo=MemoryTrendRepo(),
+        report_repo=MagicMock(), emailer=MagicMock(return_value=True),
+        slacker=MagicMock(return_value=True),
+    )
+    plain = pipe.run_pipeline(_settings(), **common)
+    profiled = pipe.run_pipeline(
+        apply_profile(_settings(), profile_from_dict(
+            {"slug": "ai_health", "theme": "AI in health", "report_type": "deep_research"})),
+        **common,
+    )
+
+    assert plain.report_path.name == "2026-W28.dryrun.html"
+    assert profiled.report_path != plain.report_path
+    assert "ai_health" in profiled.report_path.name
+    assert plain.report_path.exists() and profiled.report_path.exists()
+
+
+def test_weekly_watch_profile_keeps_the_historical_filename(monkeypatch, tmp_path):
+    """report_type 'weekly_watch' maps to the historical <week>.dryrun.html name."""
+    monkeypatch.setattr("sentinel.report.builder.DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(pipe, "fetch_fulltext", lambda url: "x " * 200)
+    monkeypatch.setattr("sentinel.analyze.llm._sleep", lambda s: None)
+
+    from sentinel.request import apply_profile, profile_from_dict
+
+    result = pipe.run_pipeline(
+        apply_profile(_settings(), profile_from_dict({
+            "slug": "weekly_ai_saas", "theme": "AI SaaS B2B",
+            "report_type": "weekly_watch", "language": "en", "cadence": "weekly"})),
+        dry_run=True, week="2026-W28",
+        collectors={"rss": lambda: list(RAW_BATCH)},
+        llm_client=LLMClient(FakeProvider(), fallback=None, batch_size=8, max_attempts=1),
+        deep_available=True,
+        article_repo=MemoryArticleRepo(), trend_repo=MemoryTrendRepo(),
+        report_repo=MagicMock(), emailer=MagicMock(return_value=True),
+        slacker=MagicMock(return_value=True),
+    )
+    assert result.report_path.name == "2026-W28.dryrun.html"
+
+
+def test_profile_with_custom_taxonomy_skips_trend_persistence(monkeypatch, tmp_path):
+    """Protects the globally-keyed trends table from colliding taxonomies."""
+    monkeypatch.setattr("sentinel.report.builder.DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(pipe, "fetch_fulltext", lambda url: "x " * 200)
+    monkeypatch.setattr("sentinel.analyze.llm._sleep", lambda s: None)
+
+    from sentinel.request import apply_profile, profile_from_dict
+
+    trend_repo = MemoryTrendRepo()
+    settings = apply_profile(_settings(), profile_from_dict({
+        "slug": "custom_tax", "theme": "T", "topics": ["alpha", "beta"]}))
+    pipe.run_pipeline(
+        settings, dry_run=False, week="2026-W28",
+        collectors={"rss": lambda: list(RAW_BATCH)},
+        llm_client=LLMClient(FakeProvider(), fallback=None, batch_size=8, max_attempts=1),
+        deep_available=True,
+        article_repo=MemoryArticleRepo(), trend_repo=trend_repo,
+        report_repo=MagicMock(), emailer=MagicMock(return_value=True),
+        slacker=MagicMock(return_value=True),
+    )
+    assert trend_repo.rows == {}, "custom taxonomy must not be written to shared trends"
+
+
 def test_no_llm_skips_analysis_but_report_still_ships(monkeypatch, tmp_path):
     monkeypatch.setattr("sentinel.report.builder.DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(pipe, "fetch_fulltext", lambda url: "x " * 200)

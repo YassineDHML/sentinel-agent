@@ -12,14 +12,14 @@
 
   <!-- Header -->
   <tr><td style="background-color:#111827; padding:24px 32px;">
-    <div style="color:#ffffff; font-size:20px; font-weight:bold;">{{ app_name }} — Weekly Strategic Intelligence</div>
-    <div style="color:#9ca3af; font-size:13px; margin-top:4px;">Week {{ week }} &middot; generated {{ generated_at }}</div>
+    <div style="color:#ffffff; font-size:20px; font-weight:bold;">{{ app_name }} — {{ labels.report_title }}</div>
+    <div style="color:#9ca3af; font-size:13px; margin-top:4px;">{{ labels.period_label }} {{ week }} &middot; {{ labels.generated_label }} {{ generated_at }}</div>
   </td></tr>
 
   <!-- 1. Executive summary -->
   <tr><td style="padding:24px 32px 8px 32px;">
     <div style="font-size:16px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:12px;">
-      1. Executive Summary
+      {{ labels.s1 }}
     </div>
     {% if executive_summary %}
       {% for item in executive_summary %}
@@ -31,14 +31,14 @@
       </div>
       {% endfor %}
     {% else %}
-      <div style="font-size:13px; color:#6b7280; font-style:italic;">No executive summary available this week.</div>
+      <div style="font-size:13px; color:#6b7280; font-style:italic;">{{ labels.empty_s1 }}</div>
     {% endif %}
   </td></tr>
 
   <!-- 2. Competitive watch -->
   <tr><td style="padding:16px 32px 8px 32px;">
     <div style="font-size:16px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:12px;">
-      2. Competitive Watch
+      {{ labels.s2 }}
     </div>
     {% if competitive_watch %}
       {% for entry in competitive_watch %}
@@ -50,44 +50,44 @@
       </div>
       {% endfor %}
     {% else %}
-      <div style="font-size:13px; color:#6b7280; font-style:italic;">No notable actor activity this week.</div>
+      <div style="font-size:13px; color:#6b7280; font-style:italic;">{{ labels.empty_s2 }}</div>
     {% endif %}
   </td></tr>
 
   <!-- 3. Trends detected -->
   <tr><td style="padding:16px 32px 8px 32px;">
     <div style="font-size:16px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:12px;">
-      3. Trends Detected
+      {{ labels.s3 }}
     </div>
 
-    <div style="font-size:13px; font-weight:bold; color:#b91c1c; margin-bottom:4px;">Accelerating</div>
+    <div style="font-size:13px; font-weight:bold; color:#b91c1c; margin-bottom:4px;">{{ labels.accelerating }}</div>
     {% if trends.accelerating %}
       {% for t in trends.accelerating %}
       <div style="font-size:14px; margin-bottom:6px;">
-        &bull; <strong>{{ t.topic }}</strong> — {{ t.count }} article{{ 's' if t.count != 1 else '' }} this week
-        <span style="font-size:12px; color:#6b7280;">(previous weeks: {{ t.prior_counts|join(', ') }})</span>
+        &bull; <strong>{{ t.topic }}</strong> — {{ t.count }} {{ labels.articles_this_week|replace('{plural}', 's' if t.count != 1 else '') }}
+        <span style="font-size:12px; color:#6b7280;">({{ labels.previous_weeks }}: {{ t.prior_counts|join(', ') }})</span>
       </div>
       {% endfor %}
     {% else %}
-      <div style="font-size:13px; color:#6b7280; font-style:italic; margin-bottom:8px;">None this week.</div>
+      <div style="font-size:13px; color:#6b7280; font-style:italic; margin-bottom:8px;">{{ labels.empty_s3 }}</div>
     {% endif %}
 
-    <div style="font-size:13px; font-weight:bold; color:#065f46; margin-top:10px; margin-bottom:4px;">New</div>
+    <div style="font-size:13px; font-weight:bold; color:#065f46; margin-top:10px; margin-bottom:4px;">{{ labels.new }}</div>
     {% if trends.new %}
       {% for t in trends.new %}
       <div style="font-size:14px; margin-bottom:6px;">
-        &bull; <strong>{{ t.topic }}</strong> — {{ t.count }} article{{ 's' if t.count != 1 else '' }}, first appearance
+        &bull; <strong>{{ t.topic }}</strong> — {{ t.count }} article{{ 's' if t.count != 1 else '' }}, {{ labels.first_appearance }}
       </div>
       {% endfor %}
     {% else %}
-      <div style="font-size:13px; color:#6b7280; font-style:italic; margin-bottom:8px;">None this week.</div>
+      <div style="font-size:13px; color:#6b7280; font-style:italic; margin-bottom:8px;">{{ labels.empty_s3 }}</div>
     {% endif %}
 
     {% if trends.ongoing %}
-    <div style="font-size:13px; font-weight:bold; color:#374151; margin-top:10px; margin-bottom:4px;">Ongoing</div>
+    <div style="font-size:13px; font-weight:bold; color:#374151; margin-top:10px; margin-bottom:4px;">{{ labels.ongoing }}</div>
       {% for t in trends.ongoing %}
       <div style="font-size:14px; margin-bottom:6px;">
-        &bull; {{ t.topic }} — {{ t.count }} article{{ 's' if t.count != 1 else '' }} (prior avg {{ '%.1f'|format(t.prior_avg) }})
+        &bull; {{ t.topic }} — {{ t.count }} article{{ 's' if t.count != 1 else '' }} ({{ labels.prior_avg }} {{ '%.1f'|format(t.prior_avg) }})
       </div>
       {% endfor %}
     {% endif %}
@@ -96,7 +96,7 @@
   <!-- 4. Opportunities -->
   <tr><td style="padding:16px 32px 8px 32px;">
     <div style="font-size:16px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:12px;">
-      4. Opportunities for Welyne
+      {{ labels.s4 }}
     </div>
     {% if opportunities %}
       {% for item in opportunities %}
@@ -108,14 +108,14 @@
       </div>
       {% endfor %}
     {% else %}
-      <div style="font-size:13px; color:#6b7280; font-style:italic;">No opportunities identified this week.</div>
+      <div style="font-size:13px; color:#6b7280; font-style:italic;">{{ labels.empty_s4 }}</div>
     {% endif %}
   </td></tr>
 
   <!-- 5. Sources consulted -->
   <tr><td style="padding:16px 32px 24px 32px;">
     <div style="font-size:16px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:12px;">
-      5. Sources Consulted
+      {{ labels.s5 }}
     </div>
     {% if sources_consulted %}
       <div style="font-size:12px; line-height:1.7; color:#374151;">
@@ -124,16 +124,16 @@
         {% endfor %}
       </div>
       {% if sources_overflow %}
-      <div style="font-size:12px; color:#9ca3af; font-style:italic; margin-top:8px;">… and {{ sources_overflow }} more analyzed source{{ 's' if sources_overflow != 1 else '' }}.</div>
+      <div style="font-size:12px; color:#9ca3af; font-style:italic; margin-top:8px;">{{ labels.more_sources|replace('{count}', sources_overflow)|replace('{plural}', 's' if sources_overflow != 1 else '') }}</div>
       {% endif %}
     {% else %}
-      <div style="font-size:13px; color:#6b7280; font-style:italic;">No sources recorded this week.</div>
+      <div style="font-size:13px; color:#6b7280; font-style:italic;">{{ labels.empty_s5 }}</div>
     {% endif %}
   </td></tr>
 
   <!-- Footer -->
   <tr><td style="background-color:#f9fafb; padding:16px 32px; font-size:11px; color:#9ca3af;">
-    {{ app_name }} — automated strategic intelligence, non-commercial internship MVP. Generated automatically, no manual review.
+    {{ labels.footer|replace('{app}', app_name) }}
   </td></tr>
 
 </table>

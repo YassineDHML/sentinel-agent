@@ -120,6 +120,10 @@ class Settings:
     feeds: list[Feed]
     discovery_queries: list[str]
     raw: dict[str, Any]  # full parsed YAML, for forward-compatibility
+    # The active report request ({A}..{F}), when this run is parameterized.
+    # A RequestProfile, typed loosely to avoid a circular import; None for the
+    # historical single-theme weekly watch.
+    profile: Any | None = None
 
 
 # --------------------------------------------------------------------------- #

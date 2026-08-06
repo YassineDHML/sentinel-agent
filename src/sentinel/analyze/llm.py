@@ -314,14 +314,29 @@ class LLMClient:
         assert last_exc is not None
         raise last_exc
 
-    def summarize_batch(self, articles: list[dict]) -> dict[str, str]:
-        """Return ``{url: summary}`` for the given articles (batched calls)."""
+    def summarize_batch(
+        self,
+        articles: list[dict],
+        *,
+        theme: str | None = None,
+        language: str | None = None,
+    ) -> dict[str, str]:
+        """Return ``{url: summary}`` for the given articles (batched calls).
+
+        ``theme``/``language`` come from the active request profile; omitting them
+        keeps the historical prompt.
+        """
         results: dict[str, str] = {}
         batches = self._batches(articles)
+        prompt_kwargs: dict[str, Any] = {}
+        if theme:
+            prompt_kwargs["theme"] = theme
+        if language:
+            prompt_kwargs["language"] = language
         for n, batch in enumerate(batches, 1):
             items = list(enumerate(batch, 1))
             index_to_url = {str(i): a["url"] for i, a in items}
-            prompt = build_summary_prompt(items)
+            prompt = build_summary_prompt(items, **prompt_kwargs)
             try:
                 results.update(self._generate_parsed(
                     prompt, lambda text: parse_summary_response(text, index_to_url)))
@@ -330,14 +345,21 @@ class LLMClient:
         logger.info("Summarized %d/%d article(s).", len(results), len(articles))
         return results
 
-    def classify_batch(self, articles: list[dict], canonical_tags: list[str]) -> dict[str, list[str]]:
+    def classify_batch(
+        self,
+        articles: list[dict],
+        canonical_tags: list[str],
+        *,
+        theme: str | None = None,
+    ) -> dict[str, list[str]]:
         """Return ``{url: [canonical tags]}`` for the given articles (batched calls)."""
         results: dict[str, list[str]] = {}
         batches = self._batches(articles)
+        prompt_kwargs: dict[str, Any] = {"theme": theme} if theme else {}
         for n, batch in enumerate(batches, 1):
             items = list(enumerate(batch, 1))
             index_to_url = {str(i): a["url"] for i, a in items}
-            prompt = build_classify_prompt(items, canonical_tags)
+            prompt = build_classify_prompt(items, canonical_tags, **prompt_kwargs)
             try:
                 results.update(self._generate_parsed(
                     prompt,

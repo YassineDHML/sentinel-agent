@@ -1,0 +1,34 @@
+# The historical weekly watch, expressed as a request profile.
+#
+# This reproduces what the pipeline has always done, so it doubles as the reference
+# example. It deliberately overrides NOTHING that config.yaml already defines —
+# running the pipeline with this profile is equivalent to running it without one,
+# apart from carrying the {A}..{F} metadata.
+
+slug: weekly_ai_saas
+report_type: weekly_watch
+
+# {A} theme
+theme: AI SaaS B2B — tooling, models and agent platforms
+
+# {B} language (sources stay English; this is the report narrative language)
+language: en
+
+# {C} geographic zone
+geo_zone: world
+
+# {D} time horizon
+horizon:
+  past_months: 12
+  future_years: 3
+
+# {E} sector focus — none: this watch is the AI-tooling market itself
+sector: null
+
+# {F} priority objective
+objective: innovation
+
+cadence: weekly
+
+# Recipients / keywords / topics / feeds intentionally omitted:
+# config.yaml remains the source of truth for the production weekly watch.

@@ -24,12 +24,18 @@ from .resolve import resolve_articles
 
 logger = get_logger("collect.googlenews")
 
-# hl/gl/ceid pin language + region to English so results match the MVP scope (§10).
-SEARCH_URL = "https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
+# hl/gl/ceid pin the edition's language + region. The defaults below reproduce the
+# original hardcoded English/US values; a request profile can override them via
+# sentinel.request.locale (which resolves {B} language x {C} geographic zone).
+SEARCH_URL = "https://news.google.com/rss/search?q={query}&hl={hl}&gl={gl}&ceid={ceid}"
+
+DEFAULT_LOCALE_PARAMS: dict[str, str] = {"hl": "en-US", "gl": "US", "ceid": "US:en"}
 
 
-def build_search_url(query: str) -> str:
-    return SEARCH_URL.format(query=quote_plus(query))
+def build_search_url(query: str, locale_params: dict[str, str] | None = None) -> str:
+    """Build a Google News RSS search URL, optionally for a specific locale."""
+    params = locale_params or DEFAULT_LOCALE_PARAMS
+    return SEARCH_URL.format(query=quote_plus(query), **params)
 
 
 def parse_googlenews(source: object, *, query: str | None = None) -> list[dict]:
@@ -61,7 +67,8 @@ def parse_googlenews(source: object, *, query: str | None = None) -> list[dict]:
 
 @graceful("googlenews")
 def collect_googlenews(queries: list[str], *, resolve: bool = True,
-                       allow_network: bool = False) -> list[dict]:
+                       allow_network: bool = False,
+                       locale_params: dict[str, str] | None = None) -> list[dict]:
     """Run each discovery query against Google News RSS. Failures are isolated.
 
     Item links are ``news.google.com`` redirect shells. When ``resolve`` is true
@@ -80,7 +87,8 @@ def collect_googlenews(queries: list[str], *, resolve: bool = True,
     articles: list[dict] = []
     for query in queries:
         try:
-            articles.extend(parse_googlenews(build_search_url(query), query=query))
+            url = build_search_url(query, locale_params)
+            articles.extend(parse_googlenews(url, query=query))
         except Exception as exc:  # noqa: BLE001
             logger.warning("Google News query %r failed: %s", query, exc)
     if resolve:
