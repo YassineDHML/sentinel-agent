@@ -13,6 +13,13 @@
 > **Date de rédaction** : Juin 2026
 > **Version** : 3 (quotas free tier vérifiés · fallback LLM tiéré · keep-alive Supabase)
 
+> ⚠️ **AVENANT v4 (août 2026) — à lire avec ce document.** L'équipe a spécifié deux
+> **capacités spéciales** qui étendent le périmètre : un rapport de recherche approfondie
+> **paramétré par l'utilisateur** (~3000 mots) et un **rapport comparatif concurrents**.
+> Deux éléments listés « hors périmètre » au §10 sont de ce fait **entrés dans le
+> périmètre**. Le corps du présent document décrit le MVP v3 tel que livré et **reste
+> valide** ; les évolutions sont consignées au **§11 (Avenant v4)** en fin de document.
+
 ---
 
 ## 1. Contexte et objectifs
@@ -394,14 +401,91 @@ Le MVP est considéré comme livré si :
 Les éléments suivants sont **exclus** et pourront être envisagés dans une version ultérieure :
 
 - Interface utilisateur web ou dashboard de visualisation
-- Personnalisation dynamique des rapports par l'utilisateur
+- ~~Personnalisation dynamique des rapports par l'utilisateur~~ → **entré dans le périmètre (avenant v4, §11)**
 - Surveillance de Twitter/X (API payante)
 - Analyse des réseaux sociaux (restrictions légales et techniques)
 - Alertes en temps réel (le MVP est hebdomadaire)
-- Multi-langues (le MVP cible les sources en anglais)
+- ~~Multi-langues (le MVP cible les sources en anglais)~~ → **partiellement entré dans le périmètre (avenant v4, §11)** : la langue du **rapport** est désormais paramétrable (FR/EN) ; les **sources** restent majoritairement anglophones
 - LLMs ou APIs payants
 - Exploitation **commerciale** en production (nécessiterait une réévaluation des ToS et des offres)
 
 ---
 
-*Document rédigé dans le cadre du stage Welyne — Agent Sentinel (Veille Stratégique AI SaaS B2B) — v2, révision après revue technique.*
+## 11. Avenant v4 — Capacités spéciales paramétrées (août 2026)
+
+> Cet avenant complète le cahier des charges v3 sans le remplacer. Le MVP décrit aux
+> §1–10 est **livré et en production** ; ce qui suit décrit l'extension demandée par
+> l'équipe et les décisions techniques associées.
+
+### 11.1 Nouvelles capacités demandées
+
+**Capacité 1 — Rapport de veille stratégique approfondi, périodique et paramétré.**
+L'utilisateur renseigne six variables via un formulaire de requête :
+
+| Variable | Description | Exemple |
+|---|---|---|
+| {A} | Thème du rapport | « L'IA dans le secteur de la santé » |
+| {B} | Langue du rapport (défaut : celle de l'on-boarding) | français |
+| {C} | Zone géographique prioritaire | Monde / Europe / France / Amérique du Nord / Asie |
+| {D} | Horizon temporel | 12 derniers mois + projection 3–5 ans |
+| {E} | Focus sectoriel | santé, retail, éducation, industrie… |
+| {F} | Objectif prioritaire du dirigeant | croissance, innovation, réduction des risques, M&A… |
+
+Livrable : **~3000 mots (± 250)**, ton dirigeant, structure obligatoire en trois parties
+(synthèse opérationnelle · analyse détaillée incl. signaux faibles et scénarios ·
+opportunités, risques & implications), **sources nommées et crédibles** (McKinsey, BCG,
+Bain, Deloitte, PwC, Gartner, Forrester, IDC, données publiques, rapports
+institutionnels), en HTML propre directement collable dans un email.
+
+**Capacité 2 — Rapport comparatif concurrents.** 5 à 10 concurrents classés par niveau
+de menace, dossier par concurrent (offre, positionnement, cible, forces, faiblesses),
+risques pour l'entreprise, opportunités exploitables, puis synthèse stratégique (top 3 +
+plan d'action). S'appuie sur un **profil d'entreprise** stocké.
+
+### 11.2 Impact sur le périmètre v3
+
+| Élément v3 | Évolution |
+|---|---|
+| Thème unique « AI SaaS B2B » codé en dur | Devient un **paramètre** ({A}) ; le thème d'origine reste une requête parmi d'autres |
+| Rapport en anglais | Langue **paramétrable** ({B}) ; libellés FR/EN |
+| Cadence hebdomadaire fixe | Cadence **par requête** (hebdo / mensuel / trimestriel) |
+| Rapport ≈ 550 mots de narration | Nouveau format ≈ **3000 mots** (le rapport hebdomadaire v3 est conservé tel quel) |
+| Sources = articles collectés uniquement | Ajout d'une **recherche web ancrée** pour atteindre les publications des cabinets nommés |
+
+### 11.3 Décisions techniques (v4)
+
+- **Recherche web via le grounding Google Search de l'API Gemini** — vérifié disponible
+  en *free tier* (août 2026) : une requête a retourné 31 sources dont `mckinsey.com`,
+  `bcg.com`, `deloitte.com`, `gartner.com`, `forrester.com`, `idc.com`, `who.int`,
+  `oecd.org`. **Aucune nouvelle dépendance ni service payant.** Contrainte constatée :
+  le grounding est **incompatible avec le mode JSON**, d'où une architecture en deux
+  temps (acquisition ancrée en prose → rédaction structurée non ancrée).
+- **Garde-fou anti-hallucination renforcé, non assoupli.** La règle v3 (« toute
+  affirmation cite un article collecté, sinon elle est supprimée ») rendait impossibles
+  les citations de cabinets et les projections à 3–5 ans. Elle est remplacée par
+  **trois niveaux contrôlés par le code** :
+  - **A** — cite un article collecté par Sentinel ;
+  - **B** — cite une source web **réellement récupérée** par la recherche ;
+  - **C** — projection / scénario / hypothèse argumentée : autorisée **uniquement** si
+    rattachée à une preuve A ou B **et** affichée avec une **mention explicite
+    d'hypothèse**.
+  Le modèle **n'écrit jamais d'URL** : il ne manipule que des identifiants de preuve, ce
+  qui rend une citation inventée structurellement impossible. Tout élément rejeté est
+  **compté** (et non silencieusement reformulé) et le décompte figure dans le rapport.
+- **Requêtes déclarées en fichiers YAML** (`requests/<slug>.yaml`), versionnés dans le
+  dépôt — pas d'interface web (celle-ci reste hors périmètre, §10).
+- **Non-régression** : le rapport hebdomadaire v3 est protégé par un test de comparaison
+  **octet par octet** ; toutes les évolutions v4 sont additives et désactivées par défaut
+  en l'absence de profil de requête.
+
+### 11.4 Points restant à confirmer avec l'équipe
+
+- « ~3000 mots » : **inclut ou exclut** la liste des sources en annexe ?
+- Existe-t-il un **formulaire / on-boarding** existant dont l'agent doit lire les
+  paramètres, ou les fichiers YAML font-ils foi ?
+- Destinataires et thèmes prioritaires pour les premières requêtes en production.
+
+---
+
+*Document rédigé dans le cadre du stage Welyne — Agent Sentinel (Veille Stratégique AI SaaS B2B).*
+*Corps : v3 (révision après revue technique). Avenant §11 : v4, août 2026.*

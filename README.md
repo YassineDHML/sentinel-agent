@@ -14,10 +14,26 @@ detailed walkthrough of how the whole system works.
 
 ## Status
 
-Built incrementally, one phase at a time. Collection, persistence, LLM analysis,
-trends, reporting, delivery, and the orchestrating pipeline are all implemented and
-tested; the GitHub Actions workflows (weekly run + Supabase keep-alive) are in place.
-Remaining: stabilization and an example report.
+**The weekly watch (v1) is complete and running.** Collection, persistence, LLM
+analysis, trends, reporting, delivery, the orchestrating pipeline and the GitHub
+Actions workflows (weekly run + Supabase keep-alive) are all implemented, tested and
+deployed.
+
+**In progress — parameterized deep research (v2).** The team specified two new
+capabilities (see the v4 amendment, §11 of the
+[cahier des charges](docs/cahier_des_charges_sentinel.md)): a ~3000-word deep-research
+report parameterized by theme / language / geography / horizon / sector / objective,
+and a competitor-comparison report. Delivered so far:
+
+- **request profiles** — any theme, language and region via `requests/<slug>.yaml`
+  (`--profile`), with the weekly report verified byte-identical;
+- **grounded web search** — confirmed working on the free tier, reaching McKinsey,
+  BCG, Deloitte, Gartner, Forrester, IDC, WHO and OECD publications;
+- **three-tier citation policy** enforced in code, so named sources and forward
+  projections are possible without weakening the anti-hallucination guarantee.
+
+Remaining: the two report generators, per-request scheduling, and multi-theme
+trend memory.
 
 ## Setup
 

@@ -15,9 +15,19 @@ Read it before making non-trivial changes.
 
 ## How this project is built
 
-Development is **incremental, one phase at a time** (Phase 0 → 10, per the approved build plan). Do not
-scaffold the whole app at once. At the end of each phase: summarize, give run/verify steps, then stop
-and wait for the user before starting the next phase. If scope is ambiguous, ask — don't invent it.
+Development is **incremental, one phase at a time**, per the approved build plan. Do not scaffold the
+whole app at once. At the end of each phase: summarize, give run/verify steps, then stop and wait for
+the user before starting the next phase. If scope is ambiguous, ask — don't invent it.
+
+Phases 0–10 delivered the v1 weekly watch. Phases 11+ adapt it to the team's **v4 amendment**
+(`docs/cahier_des_charges_sentinel.md` §11): two parameterized capabilities — a ~3000-word
+deep-research report and a competitor report. Two rules govern that work:
+
+- **The v1 weekly watch must not change.** It is in production. A golden-file test
+  (`tests/test_report_snapshot.py`) compares its rendered HTML byte-for-byte; every v2 feature is
+  additive and inert unless a request profile is supplied.
+- **New behaviour is opt-in.** `apply_profile(settings, None) is settings` — no profile means no
+  change, and defaults reproduce the original prompts and source URLs exactly.
 
 ## Architecture (the big picture)
 
@@ -59,6 +69,20 @@ that require reading several files to understand:
   **GNews (100 req/day, snippets only) is a discovery layer** — full article text is fetched separately
   from the article URL for items that pass the relevance filter. Google News RSS search supplements it.
 - **Cron is UTC.** Schedule the weekly workflow so the report lands Monday morning French time (CET/CEST).
+- **Request profiles parameterize a run without touching any stage.** Every stage takes one duck-typed
+  `settings` object, so `request/overlay.py::apply_profile` hands it a modified copy carrying {A}..{F}.
+  Only keys the profile sets are overridden. A profile that overrides `topics` is **refused write access
+  to `trends`** — that table is keyed `UNIQUE(topic, week)` *globally*, so two taxonomies would silently
+  corrupt each other's counts.
+- **Grounding and JSON mode cannot be combined** (verified live — the API rejects it). Deep research is
+  therefore two-phase: ACQUIRE grounded prose to gather evidence, then WRITE structured JSON *without*
+  tools. Also verified: publisher identity arrives in `web.title` (not `web.domain`), `thinking_budget=0`
+  is rejected, `time_range_filter` needs second granularity, and **the model decides whether to search** —
+  no grounding metadata means no evidence, never "trust the text".
+- **Citations are three-tier and enforced in code** (`research/citations.py`): A = collected article,
+  B = a web source actually retrieved, C = projection anchored to A/B **and** visibly labelled a
+  hypothesis. **The model emits evidence ids, never URLs**, so a fabricated link is structurally
+  impossible. Rejected claims are counted, not reworded.
 
 ## Conventions
 
