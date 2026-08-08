@@ -406,6 +406,60 @@ Run one:
 python -m sentinel.pipeline --dry-run --profile requests/ai_healthcare_fr.yaml
 ```
 
+## 8c. Deep research: grounded sourcing + the three-tier citation policy
+
+The weekly watch cites only articles it collected. The deep-research report must also
+cite **named research houses** (McKinsey, BCG, Gartner, IDC…) and make **forward
+projections** — neither of which the original "delete anything uncited" rule permitted.
+Both are solved by giving the model a real search tool and replacing the single rule
+with three enforced tiers.
+
+### Verified free-tier behaviour (live, Aug 2026 — `gemini-flash-latest` → `gemini-3.6-flash`)
+
+Run `python scripts/probe_grounding.py "<theme>" --months-back 12` to re-verify.
+
+| Question | Answer |
+|---|---|
+| Is Google-Search grounding available on the **free tier**? | **Yes.** One probe ran 8 searches and returned 31 sources. |
+| Does it reach the named research houses? | **Yes** — `mckinsey.com`, `bcg.com`, `deloitte.com`, `gartner.com`, `forrester.com`, `idc.com`, plus `who.int`, `oecd.org`, `nber.org`. |
+| Are the citation links usable? | **26 of 31 resolved** to durable publisher URLs (e.g. `bcg.com/publications/2026/how-ai-agents-will-transform-health-care`). |
+| Can grounding be combined with JSON mode? | **No** — returns a 400 / no candidates. **This is why research is two-phase.** |
+| Does `time_range_filter` work? | **Yes**, but only at second granularity — microseconds raise *"Granularity of nano is not supported"*. |
+| Can thinking be disabled? | **No** — `thinking_budget=0` is rejected; a small positive budget is accepted and stops thinking from eating the output allowance (one call spent 2,298 of 3,290 tokens thinking, then truncated). |
+| Where is the publisher name? | In **`web.title`** — `web.domain` was `None` on every chunk observed. Read both. |
+| Does it always search? | **No.** Searching is model-decided; it will answer from memory and return *no* grounding metadata. That must be treated as "no evidence", never as fact. |
+
+### Two-phase architecture (forced by the JSON-mode incompatibility)
+
+```
+ACQUIRE                       EvidenceStore                WRITE
+grounded prose calls   ──►    every item gets an id   ──►  ungrounded JSON calls
+(search tool ON,              A1,A2… collected article     (JSON mode ON, no tools)
+ JSON mode OFF)               B1,B2… retrieved web page    may cite ids ONLY
+```
+
+### The three tiers (`research/citations.py`)
+
+| Tier | Meaning | Enforcement |
+|---|---|---|
+| **A** | Cites a collected article | must resolve to Tier A evidence |
+| **B** | Cites a web source the search actually retrieved | must resolve to Tier B evidence |
+| **C** | Projection / scenario / argued hypothesis | must be anchored to ≥1 A or B item **and** carries a visible hypothesis label |
+
+Two structural safeguards, not just prompt instructions:
+1. **The model never writes a URL** — it emits evidence ids. An invented id resolves to
+   nothing and the claim is dropped, so a fabricated link cannot exist.
+2. **Publisher names are stored beside links**, so attribution survives an expired
+   grounding redirect.
+
+Everything rejected is **counted, not silently reworded** (`ValidationReport`), and those
+counts belong in the report's methodology footer so the guarantee stays auditable.
+Note the counters use two different units: `unknown_evidence_ids` counts unresolvable
+*citations*; `dropped_*` count *claims*. Never sum them.
+
+**Fallback if grounding ever becomes unavailable:** source Tier B from curated
+institutional RSS feeds instead — a profile setting, not a rewrite.
+
 ## 9. Configuration: two files, one rule
 
 **The rule: secrets in the environment, everything else in `config.yaml`.**

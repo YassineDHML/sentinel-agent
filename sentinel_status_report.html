@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sentinel — Project Status Report</title>
+<style>
+  :root{
+    --ink:#1e293b; --muted:#64748b; --soft:#94a3b8; --line:#e2e8f0;
+    --accent:#4338ca; --accent-soft:#eef2ff;
+    --green:#047857; --green-soft:#ecfdf5;
+    --amber:#b45309; --amber-soft:#fffbeb;
+    --red:#b91c1c;   --red-soft:#fef2f2;
+    --grey:#64748b;  --grey-soft:#f1f5f9;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:"Segoe UI",Arial,Helvetica,sans-serif;color:var(--ink);
+       line-height:1.5;font-size:10.5pt;}
+  .page{max-width:900px;margin:0 auto;padding:0 6mm;}
+
+  header.doc{border-bottom:3px solid var(--accent);padding-bottom:14px;margin-bottom:18px;}
+  .eyebrow{color:var(--accent);font-size:9pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;}
+  h1{margin:6px 0 3px;font-size:22pt;line-height:1.15;}
+  .subtitle{color:var(--muted);font-size:11pt;}
+  .meta{margin-top:10px;font-size:9pt;color:var(--muted);}
+
+  h2{font-size:13pt;color:var(--accent);margin:22px 0 9px;padding-bottom:5px;
+     border-bottom:1px solid var(--line);}
+  h3{font-size:10.5pt;margin:14px 0 5px;}
+  p{margin:7px 0;}
+  ul{margin:6px 0;padding-left:18px;} li{margin:3px 0;}
+  code{background:var(--grey-soft);padding:1px 4px;border-radius:3px;
+       font-family:Consolas,monospace;font-size:9pt;}
+
+  .callout{background:var(--accent-soft);border-left:4px solid var(--accent);
+           padding:11px 15px;border-radius:4px;margin:12px 0;}
+  .callout.warn{background:var(--amber-soft);border-left-color:var(--amber);}
+  .callout.good{background:var(--green-soft);border-left-color:var(--green);}
+
+  table{width:100%;border-collapse:collapse;margin:9px 0;font-size:9.5pt;}
+  th,td{text-align:left;padding:5px 7px;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{color:var(--muted);font-size:8pt;text-transform:uppercase;letter-spacing:.04em;}
+
+  .badge{display:inline-block;font-size:8pt;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap;}
+  .b-done{color:var(--green);background:var(--green-soft);}
+  .b-prog{color:var(--amber);background:var(--amber-soft);}
+  .b-next{color:var(--grey);background:var(--grey-soft);}
+  .b-risk{color:var(--red);background:var(--red-soft);}
+
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:11px 0;}
+  .card{border:1px solid var(--line);border-radius:7px;padding:10px 8px;text-align:center;}
+  .card .num{font-size:15pt;font-weight:800;color:var(--accent);line-height:1.1;}
+  .card .lbl{font-size:8pt;color:var(--muted);margin-top:3px;}
+
+  .pipe{display:flex;gap:4px;margin:10px 0;}
+  .stg{flex:1;border-radius:6px;padding:7px 4px;color:#fff;text-align:center;font-size:8pt;font-weight:700;}
+  .s1{background:#0369a1;}.s2{background:#0891b2;}.s3{background:#0d9488;}
+  .s4{background:#7c3aed;}.s5{background:#c026d3;}.s6{background:#db2777;}.s7{background:#e11d48;}
+
+  .gap{border:1px solid var(--line);border-radius:7px;padding:10px 13px;margin:8px 0;}
+  .gap .t{font-weight:700;color:var(--red);font-size:10pt;}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+
+  .pagebreak{page-break-before:always;}
+  footer.doc{margin-top:22px;padding-top:10px;border-top:1px solid var(--line);
+             font-size:8.5pt;color:var(--soft);}
+
+  @page{size:A4;margin:13mm 11mm;}
+  @media print{
+    .page{max-width:none;padding:0;}
+    h2,h3{page-break-after:avoid;}
+    table,.cards,.callout,.gap,.pipe,.two{page-break-inside:avoid;}
+    .card,.stg,.badge{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="doc">
+  <div class="eyebrow">Welyne · Programme AI Commandos</div>
+  <h1>Sentinel — Project Status Report</h1>
+  <div class="subtitle">Automated strategic-intelligence agent · Adapting to the new capability specification</div>
+  <div class="meta">Yassine Dahmoul · Intern · GitLab branch <code>sentinel-agent-yassine</code></div>
+</header>
+
+<div class="callout">
+  <strong>Where we stand.</strong> The original Sentinel MVP is <strong>built, deployed and running
+  autonomously</strong>. The team has since specified two new capabilities — a parameterized
+  ~3000-word deep-research report and a competitor-comparison report — which require the agent to
+  become <em>configurable</em> rather than single-topic. Three foundation phases are now complete:
+  the system is fully parameterized (any theme, language, geography) while the production weekly
+  report remains <strong>byte-for-byte unchanged</strong>. The next phase resolves the one open
+  technical risk before the new reports are built.
+</div>
+
+<div class="cards">
+  <div class="card"><div class="num">v1 live</div><div class="lbl">weekly agent running</div></div>
+  <div class="card"><div class="num">3 / 8</div><div class="lbl">adaptation phases done</div></div>
+  <div class="card"><div class="num">252</div><div class="lbl">automated tests passing</div></div>
+  <div class="card"><div class="num">0 €</div><div class="lbl">running cost</div></div>
+</div>
+
+<h2>1. What we originally built</h2>
+<p>
+  Sentinel v1 is a <strong>weekly autonomous pipeline</strong> watching the AI SaaS B2B market. It
+  runs unattended in the cloud every Monday morning and emails a sourced intelligence report.
+</p>
+
+<div class="pipe">
+  <div class="stg s1">1 · Collect</div>
+  <div class="stg s2">2 · Process</div>
+  <div class="stg s3">3 · Full text</div>
+  <div class="stg s4">4 · Analyze</div>
+  <div class="stg s5">5 · Trends</div>
+  <div class="stg s6">6 · Report</div>
+  <div class="stg s7">7 · Deliver</div>
+</div>
+
+<table>
+  <tr><th style="width:22%">Capability</th><th>How it works</th></tr>
+  <tr><td><strong>Collection</strong></td><td>5 free sources — RSS feeds, Hacker News, Product Hunt, Google News, GNews. ~2,700 articles per run.</td></tr>
+  <tr><td><strong>Filtering</strong></td><td>Relevance filter + two-layer deduplication (exact URL, then cross-source title similarity). ~2,700 → ~1,700.</td></tr>
+  <tr><td><strong>AI analysis</strong></td><td>Google Gemini summarizes and tags each article against a fixed 20-topic taxonomy; Groq as fallback.</td></tr>
+  <tr><td><strong>Historical memory</strong></td><td>Supabase database persists between runs, so the agent distinguishes a <em>new</em> trend from an <em>accelerating</em> one.</td></tr>
+  <tr><td><strong>Report &amp; delivery</strong></td><td>HTML report in 5 sections, emailed via Gmail + optional Slack notification.</td></tr>
+  <tr><td><strong>Automation</strong></td><td>GitHub Actions weekly cron (UTC-timed for Monday morning CET) + a keep-alive job preventing the free database from pausing.</td></tr>
+</table>
+
+<div class="callout good">
+  <strong>Two design principles worth knowing.</strong>
+  <strong>(1) It is a workflow, not an autonomous agent</strong> — the steps run in a fixed order and
+  the LLM only acts inside two narrow, controlled steps, which makes it predictable and debuggable.
+  <strong>(2) The database is the memory</strong> — cloud runners are wiped after every run, so all
+  history lives in Supabase; that is what makes trend detection possible at all.
+</div>
+
+<h2>2. Why the system had to change</h2>
+<p>
+  The team's new specification asks the user to fill in a <strong>request form</strong> with six
+  variables, and to receive a much deeper report on a schedule:
+</p>
+
+<table>
+  <tr><th style="width:14%">Variable</th><th style="width:30%">Meaning</th><th>Example</th></tr>
+  <tr><td><strong>{A}</strong></td><td>Theme of the watch</td><td>"AI in healthcare"</td></tr>
+  <tr><td><strong>{B}</strong></td><td>Report language</td><td>French</td></tr>
+  <tr><td><strong>{C}</strong></td><td>Geographic zone</td><td>France / Europe / World</td></tr>
+  <tr><td><strong>{D}</strong></td><td>Time horizon</td><td>last 12 months + 3–5 year projection</td></tr>
+  <tr><td><strong>{E}</strong></td><td>Sector focus</td><td>health, retail, education…</td></tr>
+  <tr><td><strong>{F}</strong></td><td>Executive priority</td><td>growth, innovation, M&amp;A…</td></tr>
+</table>
+
+<p>Comparing that to what existed revealed <strong>three structural gaps</strong>:</p>
+
+<div class="gap">
+  <div class="t">Gap 1 — Nothing was parameterizable</div>
+  The theme was not a setting: "AI SaaS B2B" was written directly into the code in about
+  <strong>11 separate places</strong> — prompts, the Google News URL, report headings, even the word
+  "Welyne" inside a prompt. Changing the topic was not a configuration change; it was a code change.
+</div>
+
+<div class="gap">
+  <div class="t">Gap 2 — The report is ~18% of the required length</div>
+  Today's report contains roughly <strong>548 words</strong> of AI-written narrative. The
+  specification asks for <strong>3,000 ± 250</strong>, in a mandatory three-part structure with
+  scenarios and weak signals. This is not a longer prompt — it needs a different generation method.
+</div>
+
+<div class="gap">
+  <div class="t">Gap 3 — The anti-hallucination rule blocked the new requirement</div>
+  Sentinel enforces a strict rule: <em>every claim must cite a collected source article; anything
+  uncited is deleted.</em> That is precisely why its reports are trustworthy. But the new spec
+  requires citing <strong>McKinsey, BCG, Gartner, IDC</strong> and producing <strong>3–5 year
+  projections</strong> — neither of which can cite last week's news article. The existing code would
+  have silently deleted every such statement. The requirement was not merely unimplemented; it was
+  <strong>structurally impossible</strong>.
+</div>
+
+<div class="pagebreak"></div>
+
+<h2>3. What we have implemented so far</h2>
+<p>
+  Three phases of foundation work, deliberately <strong>additive and invisible</strong>: the
+  production weekly report behaves exactly as before, while the machinery underneath became
+  configurable.
+</p>
+
+<h3>Foundations &amp; safety net <span class="badge b-done">Done</span></h3>
+<ul>
+  <li><strong>Regression safety net.</strong> A test renders the weekly report and compares it
+      byte-for-byte against a reference copy. We validated the net itself by deliberately breaking a
+      heading — the test caught it immediately. Every later change relied on this.</li>
+  <li><strong>Reporting periods</strong> generalized from weekly-only to weekly / monthly / quarterly.</li>
+  <li><strong>LLM controls</strong> added (output limits, tool support, truncation detection) — all
+      optional, so current behaviour is unchanged.</li>
+  <li><strong>Database</strong> extended with report type, language, period, word count, and a new
+      <strong>citation ledger</strong> table making every cited source auditable after the fact.</li>
+</ul>
+
+<h3>Full parameterization <span class="badge b-done">Done</span></h3>
+<p>
+  The system is no longer single-topic. A request is now a small YAML file carrying {A}–{F}; it is
+  overlaid onto the configuration and flows through the pipeline — <strong>without a single pipeline
+  stage being modified</strong>.
+</p>
+<div class="two">
+  <div>
+    <strong>Verified working (live run, French healthcare request):</strong>
+    <ul>
+      <li>French-language queries drove collection (525 articles)</li>
+      <li>A different keyword set filtered differently</li>
+      <li><strong>Gemini produced the analysis in French</strong></li>
+      <li>Report headings rendered in French</li>
+    </ul>
+  </div>
+  <div>
+    <strong>Verified nothing broke:</strong>
+    <ul>
+      <li>No request profile ⇒ <strong>literally zero change</strong></li>
+      <li>Default search URL asserted <strong>identical</strong> to the old one</li>
+      <li>English report still <strong>byte-identical</strong></li>
+      <li>Test suite grew 148 → <strong>252 passing</strong></li>
+    </ul>
+  </div>
+</div>
+
+<h2>4. What is still to come</h2>
+
+<table>
+  <tr><th style="width:8%">Step</th><th style="width:26%">Deliverable</th><th>What it adds</th><th style="width:13%">Status</th></tr>
+  <tr>
+    <td><strong>1</strong></td><td>Web search &amp; citation policy</td>
+    <td>Real web search so the report can cite McKinsey / Gartner / IDC, plus the rewritten three-tier citation rule that unblocks projections.</td>
+    <td><span class="badge b-risk">Decisive</span></td>
+  </tr>
+  <tr>
+    <td><strong>2</strong></td><td>Deep-research report</td>
+    <td>The ~3,000-word deliverable: operational synthesis, detailed analysis with weak signals and scenarios, opportunities &amp; risks.</td>
+    <td><span class="badge b-next">Planned</span></td>
+  </tr>
+  <tr>
+    <td><strong>3</strong></td><td>Competitor report</td>
+    <td>Capability 2: 5–10 competitors ranked by threat, full dossiers, top-3 synthesis and action plan, driven by a company profile.</td>
+    <td><span class="badge b-next">Planned</span></td>
+  </tr>
+  <tr>
+    <td><strong>4</strong></td><td>Periodic scheduling</td>
+    <td>Per-request cadence (weekly / monthly / quarterly) — the "programmer la réception périodique" part of the spec.</td>
+    <td><span class="badge b-next">Planned</span></td>
+  </tr>
+  <tr>
+    <td><strong>5</strong></td><td>Multi-theme memory</td>
+    <td>Tracking several themes simultaneously, each with its own independent trend history.</td>
+    <td><span class="badge b-next">Planned</span></td>
+  </tr>
+</table>
+
+<h3>The one open risk</h3>
+<div class="callout warn">
+  <strong>Can we cite McKinsey and Gartner credibly, for free?</strong>
+  The Google AI library we already use ships a <strong>web-search capability that returns the URLs the
+  model actually consulted</strong> — requiring no new dependency and no paid service. What is not yet
+  confirmed is whether it is included in the <strong>free tier</strong>.
+  The next step is deliberately a short, cheap experiment to answer this <em>before</em> anything
+  depends on it. If the answer is no, a fallback (sourcing from selected institutional RSS feeds) is
+  already designed as a configuration switch rather than a rewrite.
+</div>
+
+<h3>How trustworthiness is preserved</h3>
+<p>The citation rule is being replaced by three enforced tiers rather than relaxed:</p>
+<table>
+  <tr><th style="width:10%">Tier</th><th style="width:42%">What it means</th><th>How it is enforced</th></tr>
+  <tr><td><strong>A</strong></td><td>Cites an article Sentinel collected</td><td>Today's rule, unchanged</td></tr>
+  <tr><td><strong>B</strong></td><td>Cites a web source Sentinel actually retrieved</td><td>Checked against the real URLs returned with the search</td></tr>
+  <tr><td><strong>C</strong></td><td>A projection or scenario</td><td>Allowed only if anchored to A/B evidence <strong>and visibly labelled as a hypothesis</strong></td></tr>
+</table>
+<p>
+  Two safeguards make this robust: the AI <strong>never writes a URL itself</strong> (it references
+  evidence identifiers, so invented links are impossible), and the publisher name is stored separately
+  from the link, so attribution survives even if a link expires.
+</p>
+
+<footer class="doc">
+  Sentinel — automated strategic intelligence · Welyne / AI Commandos · Internship project status
+  report. Full technical documentation: <code>docs/ARCHITECTURE.md</code> and <code>CONTRIBUTING.md</code>
+  in the repository.
+</footer>
+
+</div>
+</body>
+</html>

@@ -63,7 +63,12 @@ logger = get_logger("collect.resolve")
 
 # Hosts whose article links are redirect shells we should resolve. Kept as a
 # tuple so "and similar" aggregators can be added without touching call sites.
-REDIRECT_HOSTS: tuple[str, ...] = ("news.google.com",)
+#   news.google.com          — RSS item links (see the caveat above; unresolvable today)
+#   vertexaisearch.cloud...  — Gemini search-grounding citation shells. These DO
+#                              resolve (verified: -> mckinsey.de/..., mckinsey.com/...)
+#                              and can expire, so resolving them yields durable
+#                              publisher URLs for report citations.
+REDIRECT_HOSTS: tuple[str, ...] = ("news.google.com", "vertexaisearch.cloud.google.com")
 
 # A browser-like User-Agent. Google serves bare redirect shells / consent walls
 # to unknown agents; a common desktop UA gets the plain redirect chain instead.
