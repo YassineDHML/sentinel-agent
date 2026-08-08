@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="{{ report_language }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ labels.doc_title }} — {{ theme }}</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f4f5f7; font-family:Arial, Helvetica, sans-serif; color:#1a1a1a;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7; padding:24px 0;">
+<tr><td align="center">
+<table role="presentation" width="680" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:8px; overflow:hidden;">
+
+  <!-- Header -->
+  <tr><td style="background-color:#111827; padding:26px 32px;">
+    <div style="color:#9ca3af; font-size:11px; letter-spacing:.08em; text-transform:uppercase;">{{ labels.doc_title }}</div>
+    <div style="color:#ffffff; font-size:21px; font-weight:bold; margin-top:6px; line-height:1.3;">{{ theme }}</div>
+    <div style="color:#9ca3af; font-size:12px; margin-top:8px;">
+      {% if period_label %}{{ period_label }} &middot; {% endif %}{{ labels.generated_label }} {{ generated_at }}
+    </div>
+    {% if scope_line %}
+    <div style="color:#9ca3af; font-size:12px; margin-top:4px;">{{ scope_line }}</div>
+    {% endif %}
+  </td></tr>
+
+  <!-- 1. OPERATIONAL SYNTHESIS -->
+  <tr><td style="padding:26px 32px 8px 32px;">
+    <div style="font-size:17px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:6px;">
+      {{ labels.s1 }}
+    </div>
+    <div style="font-size:12px; color:#6b7280; margin-bottom:14px;">{{ labels.s1_hint }}</div>
+
+    {% for group in synthesis_groups %}
+      {% if group.blocks %}
+      <div style="font-size:13px; font-weight:bold; color:{{ group.color }}; margin:12px 0 6px;">{{ group.title }}</div>
+        {% for b in group.blocks %}
+        <div style="font-size:14px; line-height:1.55; margin-bottom:8px;">
+          &bull; {% for line in b.items %}{{ line }} {% endfor %}
+          {% if b.needs_hypothesis_label %}<span style="font-size:11px; font-weight:bold; color:#b45309; background-color:#fffbeb; padding:1px 6px; border-radius:3px;">{{ labels.hypothesis }}</span>{% endif %}
+          <span style="font-size:11px; color:#6b7280;">{% for s in b.sources %}<a href="{{ s.url }}" style="color:#2563eb; text-decoration:none;">[{{ s.label }}]</a>{% if not loop.last %} {% endif %}{% endfor %}</span>
+        </div>
+        {% endfor %}
+      {% endif %}
+    {% endfor %}
+    {% if not has_synthesis %}
+      <div style="font-size:13px; color:#6b7280; font-style:italic;">{{ labels.empty }}</div>
+    {% endif %}
+  </td></tr>
+
+  <!-- 2. DETAILED ANALYSIS -->
+  <tr><td style="padding:18px 32px 8px 32px;">
+    <div style="font-size:17px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:14px;">
+      {{ labels.s2 }}
+    </div>
+
+    {% for group in analysis_groups %}
+      {% if group.blocks %}
+      <div style="font-size:14px; font-weight:bold; color:#1e3a8a; margin:16px 0 8px;">{{ group.title }}</div>
+        {% for b in group.blocks %}
+        <div style="margin-bottom:14px;">
+          {% if b.heading %}<div style="font-size:14px; font-weight:bold; color:#111827; margin-bottom:4px;">{{ b.heading }}</div>{% endif %}
+          {% if b.needs_hypothesis_label %}
+          <div style="font-size:11px; color:#b45309; background-color:#fffbeb; border-left:3px solid #b45309; padding:6px 10px; margin-bottom:6px;">
+            <strong>{{ labels.hypothesis }}</strong>{% if b.horizon %} &middot; {{ b.horizon }}{% endif %}{% if b.basis %} — {{ b.basis }}{% endif %}
+          </div>
+          {% endif %}
+          {% for p in b.paragraphs %}
+          <div style="font-size:14px; line-height:1.6; margin-bottom:7px;">{{ p }}</div>
+          {% endfor %}
+          {% if b.items %}
+            {% for line in b.items %}
+            <div style="font-size:14px; line-height:1.55; margin-bottom:5px;">&bull; {{ line }}</div>
+            {% endfor %}
+          {% endif %}
+          <div style="font-size:11px; color:#6b7280;">{% for s in b.sources %}<a href="{{ s.url }}" style="color:#2563eb; text-decoration:none;">[{{ s.label }}]</a>{% if not loop.last %} {% endif %}{% endfor %}</div>
+        </div>
+        {% endfor %}
+      {% endif %}
+    {% endfor %}
+    {% if not has_analysis %}
+      <div style="font-size:13px; color:#6b7280; font-style:italic;">{{ labels.empty }}</div>
+    {% endif %}
+  </td></tr>
+
+  <!-- 3. OPPORTUNITIES, RISKS & IMPLICATIONS -->
+  <tr><td style="padding:18px 32px 8px 32px;">
+    <div style="font-size:17px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:14px;">
+      {{ labels.s3 }}
+    </div>
+
+    {% for group in implication_groups %}
+      {% if group.blocks %}
+      <div style="font-size:14px; font-weight:bold; color:{{ group.color }}; margin:14px 0 7px;">{{ group.title }}</div>
+        {% for b in group.blocks %}
+        <div style="margin-bottom:11px;">
+          {% if b.heading %}<div style="font-size:13.5px; font-weight:bold; color:#111827;">{{ b.heading }}</div>{% endif %}
+          {% for p in b.paragraphs %}
+          <div style="font-size:14px; line-height:1.55;">{{ p }}</div>
+          {% endfor %}
+          {% for line in b.items %}
+          <div style="font-size:14px; line-height:1.55;">&bull; {{ line }}</div>
+          {% endfor %}
+          <div style="font-size:11px; color:#6b7280;">{% for s in b.sources %}<a href="{{ s.url }}" style="color:#2563eb; text-decoration:none;">[{{ s.label }}]</a>{% if not loop.last %} {% endif %}{% endfor %}</div>
+        </div>
+        {% endfor %}
+      {% endif %}
+    {% endfor %}
+    {% if not has_implications %}
+      <div style="font-size:13px; color:#6b7280; font-style:italic;">{{ labels.empty }}</div>
+    {% endif %}
+  </td></tr>
+
+  <!-- Sources -->
+  <tr><td style="padding:18px 32px 8px 32px;">
+    <div style="font-size:17px; font-weight:bold; color:#111827; border-bottom:2px solid #e5e7eb; padding-bottom:6px; margin-bottom:12px;">
+      {{ labels.sources }}
+    </div>
+    {% if sources %}
+    <div style="font-size:12px; line-height:1.7; color:#374151;">
+      {% for s in sources %}
+      <div>&bull; <strong>{{ s.label }}</strong>{% if s.title %} — <a href="{{ s.url }}" style="color:#2563eb; text-decoration:none;">{{ s.title }}</a>{% else %} — <a href="{{ s.url }}" style="color:#2563eb; text-decoration:none;">{{ s.url }}</a>{% endif %}</div>
+      {% endfor %}
+    </div>
+    {% else %}
+      <div style="font-size:13px; color:#6b7280; font-style:italic;">{{ labels.empty }}</div>
+    {% endif %}
+  </td></tr>
+
+  <!-- Methodology: makes the anti-hallucination guarantee auditable -->
+  <tr><td style="padding:14px 32px 22px 32px;">
+    <div style="background-color:#f9fafb; border-left:3px solid #9ca3af; padding:12px 16px; font-size:11.5px; color:#4b5563; line-height:1.6;">
+      <strong>{{ labels.methodology }}</strong><br>
+      {{ labels.m_evidence }}: {{ integrity.evidence_total }}
+      ({{ integrity.evidence_web }} {{ labels.m_web }}, {{ integrity.evidence_corpus }} {{ labels.m_corpus }}) &middot;
+      {{ labels.m_searches }}: {{ integrity.searches_run|length }} &middot;
+      {{ labels.m_accepted }}: {{ integrity.claims_accepted }} &middot;
+      {{ labels.m_dropped }}: {{ integrity.claims_dropped }}
+      {%- if integrity.unresolvable_citations %} &middot; {{ labels.m_unresolvable }}: {{ integrity.unresolvable_citations }}{% endif %} &middot;
+      {{ labels.m_words }}: {{ integrity.actual_words }}<br>
+      {{ labels.m_note }}
+      {% if integrity.degradations %}
+      <br><span style="color:#b45309;">{{ labels.m_degraded }}: {{ integrity.degradations|join('; ') }}</span>
+      {% endif %}
+    </div>
+  </td></tr>
+
+  <!-- Footer -->
+  <tr><td style="background-color:#f9fafb; padding:14px 32px; font-size:11px; color:#9ca3af;">
+    {{ labels.footer }}
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>

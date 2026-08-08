@@ -460,6 +460,58 @@ Note the counters use two different units: `unknown_evidence_ids` counts unresol
 **Fallback if grounding ever becomes unavailable:** source Tier B from curated
 institutional RSS feeds instead — a profile setting, not a rewrite.
 
+## 8d. The deep-research report (~3000 words)
+
+`python -m sentinel.research --profile requests/<slug>.yaml`
+
+### Why it is not one big LLM call
+
+A 3000-word report is ~4,500 output tokens, and extended thinking is charged against
+the same allowance. A single call that truncates loses **everything**. So generation is
+staged, and every stage degrades instead of aborting:
+
+```
+ACQUIRE   3 grounded searches (prose, tools ON)  ──►  EvidenceStore (A*/B* ids)
+WRITE     §2 analysis  →  §3 implications  →  §1 synthesis   (JSON, tools OFF)
+MEASURE   count words in Python  ──►  TRIM deterministically  ──►  render
+```
+
+Four mechanisms make the length reliable (`research/budget.py`):
+
+1. **Structural budgeting, not word instructions.** Python decides how many blocks each
+   section gets and how long each should be; the prompt asks for something *countable*
+   ("3 paragraphs of ~105 words"), which models obey far better than "write 3000 words".
+2. **Deliberate overshoot** (×1.05) — trimming is free, expanding costs another call.
+3. **Measurement in Python** — the model's own estimate is never trusted.
+4. **Deterministic trimming** with floors: never below 5 key takeaways, and scenarios
+   and projections are never dropped.
+
+### Flat blocks — what survives truncation
+
+Every part of the report is a block with a `kind` from a **closed vocabulary**
+(`research/contracts.py`), delivered as `{"blocks": [...]}`. If a response is cut off,
+`salvage_json_blocks` decodes elements one at a time and keeps every complete one, so a
+section truncated at 80% still delivers 80% of its content. A nested schema would lose
+all of it. Unknown `kind` values are dropped — the same discipline the canonical topic
+list applies to trends.
+
+### §1 is written last
+
+The operational synthesis is *printed* first but *generated* last, from the finished
+body. Deriving it from the completed analysis is the strongest guard against the summary
+contradicting the report — and it is how a human analyst works. A **key-figures ledger**
+extracted during ACQUIRE is injected into every writing call, so a number quoted in §1
+matches the one in §2.
+
+### What the reader sees
+
+Three mandatory sections plus a **methodology footer** carrying the real counts (evidence
+gathered, searches run, claims retained, claims dropped, unresolvable citations, word
+count). Forward-looking blocks render with a visible **HYPOTHESIS** badge and the basis
+they extrapolate from, so a projection can never read as established fact.
+`templates/research_report.html` is table-based with inline styles only — no scripts, no
+external assets — and the model never emits HTML (JSON → context → Jinja, autoescape on).
+
 ## 9. Configuration: two files, one rule
 
 **The rule: secrets in the environment, everything else in `config.yaml`.**
