@@ -1,0 +1,50 @@
+# Who "we" are — used by the competitor report to rank threats from our point of
+# view and propose how we should respond. Edit freely; nothing here is a secret.
+#
+# This replaces the company name that used to be hardcoded inside a prompt.
+
+name: Welyne
+one_liner: >-
+  IT company specialising in artificial intelligence, building the AI Commandos
+  programme — a fleet of specialised AI agents that automate key business functions.
+sector: AI services and AI agent platforms (B2B)
+
+offer:
+  - AI Commandos — specialised AI agents for business functions
+  - Sentinel — automated strategic-intelligence watch
+  - AI consulting and custom agent development
+
+positioning: >-
+  Specialist AI agency delivering ready-to-use, function-specific agents rather than
+  a generic platform.
+
+target_customers:
+  - Mid-market and large enterprises adopting AI
+  - Executive teams needing decision support
+  - Business functions seeking automation (intelligence, marketing, finance)
+
+geographies:
+  - France
+  - Europe
+
+price_posture: mid-market, project and subscription based
+
+differentiators:
+  - Function-specific agents delivered ready to use, not a build-it-yourself platform
+  - Sourced, auditable outputs (every claim traceable to a real source)
+  - Rapid deployment on free or low-cost infrastructure
+
+# Competitors you already know about. The report also discovers others; these are
+# always included so a known rival is never missed.
+known_competitors:
+  - Relevance AI
+  - CrewAI
+  - LangChain
+  - Make
+  - Zapier
+
+# Never treat these as competitors (partners, suppliers, our own brands).
+excluded_names:
+  - Welyne
+
+language: fr

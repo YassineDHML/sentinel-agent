@@ -512,6 +512,36 @@ they extrapolate from, so a projection can never read as established fact.
 `templates/research_report.html` is table-based with inline styles only — no scripts, no
 external assets — and the model never emits HTML (JSON → context → Jinja, autoescape on).
 
+## 8e. The competitor report
+
+`python -m sentinel.competitors`
+
+Capability 2: 5–10 competitors ranked by threat, a dossier each, and a strategic
+synthesis naming the three most dangerous with an action plan. Written *from our point
+of view*, which is why it needs `profiles/company.yaml` — the company profile that
+finally replaces the name once hardcoded inside a prompt.
+
+```
+DISCOVER   declared competitors ∪ grounded search      (1 call)
+DOSSIER    per competitor: grounded research → structure   (2 calls each)
+SYNTHESIS  top-3 threats + action plan                 (1 call)
+```
+
+Three deliberate choices:
+
+- **One grounded call per competitor**, not one big call. Each JSON response stays
+  small (truncation unlikely, and cheap when it happens), and a competitor that can't
+  be researched is a graceful skip rather than a lost report.
+- **Declared competitors always survive discovery.** A rival the team already tracks
+  can never be dropped because a search missed it.
+- **Unsourced numbers are omitted, not hedged.** Market share or traction appears only
+  when a source provides it — never "approximately". The spec invites *argued
+  hypotheses*, so those are allowed, but only as Tier C: anchored to real evidence and
+  visibly labelled. A competitor with no sources at all is skipped rather than guessed.
+
+`threat_level` and `positioning` are closed enums validated in code; an out-of-set value
+falls back to `medium` with a warning rather than reaching the report.
+
 ## 9. Configuration: two files, one rule
 
 **The rule: secrets in the environment, everything else in `config.yaml`.**
