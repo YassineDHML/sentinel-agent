@@ -5,6 +5,7 @@ so importing this package requires neither the SDK nor any credentials.
 """
 
 from .client import SupabaseDB, create_supabase_client
+from .errors import is_unique_violation, retry_unless_unique
 from .repositories import (
     ArticleRepository,
     ReportRepository,
@@ -19,4 +20,6 @@ __all__ = [
     "TrendRepository",
     "ReportRepository",
     "ReportSourceRepository",
+    "is_unique_violation",
+    "retry_unless_unique",
 ]

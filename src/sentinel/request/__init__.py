@@ -7,6 +7,7 @@ runs against per-request settings without any signature change.
 """
 
 from .locale import GEO_ZONES, SUPPORTED_LANGUAGES, Locale, LocaleError, resolve_locale
+from .onboarding import Onboarding, load_onboarding
 from .overlay import apply_profile, assert_trend_safe, profile_of, theme_of
 from .profile import (
     CADENCES,
@@ -15,14 +16,18 @@ from .profile import (
     RequestProfile,
     list_profiles,
     load_profile,
+    load_profiles,
     profile_from_dict,
 )
 
 __all__ = [
     "RequestProfile",
     "load_profile",
+    "load_profiles",
     "profile_from_dict",
     "list_profiles",
+    "Onboarding",
+    "load_onboarding",
     "apply_profile",
     "profile_of",
     "theme_of",

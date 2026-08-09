@@ -103,6 +103,40 @@ create index if not exists idx_report_sources_report on report_sources (report_i
 create index if not exists idx_report_sources_domain on report_sources (domain);
 
 -- =============================================================================
+-- runs — the scheduler's ledger: one row per (request, period).
+--
+-- The dispatcher runs DAILY and decides what is due by asking "is there already
+-- a run for this request in the current period?". That makes the ledger, not a
+-- `next_run_at` timestamp, the source of truth — which is why a missed day
+-- self-heals (the period is still current tomorrow) and why a double dispatch
+-- cannot produce two reports.
+--
+-- UNIQUE(request_slug, period_key) is the concurrency gate: claiming a run is an
+-- INSERT, and losing the race is a unique violation rather than a lock. A run
+-- left 'running' by a killed CI job is reclaimed after RECLAIM_AFTER_HOURS via a
+-- conditional UPDATE (compare-and-swap on the observed status).
+-- =============================================================================
+create table if not exists runs (
+    id            bigint generated always as identity primary key,
+    request_slug  text not null,
+    report_type   text,
+    period_kind   text,
+    period_key    text not null,          -- e.g. "2026-W32", "2026-M08", "2026-Q3"
+    status        text not null default 'running'
+                  check (status in ('running', 'success', 'failed', 'skipped')),
+    attempts      integer not null default 1,
+    started_at    timestamptz default now(),
+    finished_at   timestamptz,
+    report_id     bigint references reports(id) on delete set null,
+    error         text,
+    note          text,
+    unique (request_slug, period_key)
+);
+
+create index if not exists idx_runs_slug   on runs (request_slug, period_key);
+create index if not exists idx_runs_status on runs (status, started_at desc);
+
+-- =============================================================================
 -- ping() — trivial "SELECT 1" used by the keep-alive workflow.
 -- PostgREST/supabase-py cannot run raw SQL, so the keep-alive calls this via
 -- rpc("ping"). Exposed automatically to the API in the public schema.

@@ -448,7 +448,7 @@ plan d'action). S'appuie sur un **profil d'entreprise** stocké.
 |---|---|
 | Thème unique « AI SaaS B2B » codé en dur | Devient un **paramètre** ({A}) ; le thème d'origine reste une requête parmi d'autres |
 | Rapport en anglais | Langue **paramétrable** ({B}) ; libellés FR/EN |
-| Cadence hebdomadaire fixe | Cadence **par requête** (hebdo / mensuel / trimestriel) |
+| Cadence hebdomadaire fixe | Cadence **par requête** (hebdo / mensuel / trimestriel), déclarée dans le fichier de requête et exécutée par un répartiteur quotidien |
 | Rapport ≈ 550 mots de narration | Nouveau format ≈ **3000 mots** (le rapport hebdomadaire v3 est conservé tel quel) |
 | Sources = articles collectés uniquement | Ajout d'une **recherche web ancrée** pour atteindre les publications des cabinets nommés |
 
@@ -473,17 +473,35 @@ plan d'action). S'appuie sur un **profil d'entreprise** stocké.
   qui rend une citation inventée structurellement impossible. Tout élément rejeté est
   **compté** (et non silencieusement reformulé) et le décompte figure dans le rapport.
 - **Requêtes déclarées en fichiers YAML** (`requests/<slug>.yaml`), versionnés dans le
-  dépôt — pas d'interface web (celle-ci reste hors périmètre, §10).
+  dépôt — pas d'interface web (celle-ci reste hors périmètre, §10). Les réponses
+  d'**on-boarding** communes à toute l'organisation (langue {B} par défaut,
+  destinataires, profil d'entreprise) sont centralisées une seule fois dans
+  `profiles/onboarding.yaml` ; une requête n'a besoin de déclarer que ce qui lui est
+  propre.
+- **Réception périodique sans planificateur d'état.** Chaque requête porte sa cadence ;
+  un workflow **quotidien** produit ce qui est dû. L'échéance n'est pas stockée sous
+  forme de « prochaine exécution » (valeur dérivée qui dérive dès qu'une exécution est
+  manquée) mais **déduite du calendrier** : une requête est due si l'on se trouve dans
+  une période de sa cadence et qu'aucune exécution n'existe encore pour cette période,
+  d'après le registre `runs`. Conséquences : un jour manqué se rattrape, une double
+  exécution ne produit rien la seconde fois, et un échec est **réessayé le lendemain**
+  plutôt que perdu jusqu'à la période suivante.
 - **Non-régression** : le rapport hebdomadaire v3 est protégé par un test de comparaison
   **octet par octet** ; toutes les évolutions v4 sont additives et désactivées par défaut
-  en l'absence de profil de requête.
+  en l'absence de profil de requête. La veille hebdomadaire de production n'est
+  **volontairement pas** confiée au répartiteur (`scheduled: false`) : `weekly.yml` la
+  pilote déjà, et deux pilotes signifieraient deux emails le lundi.
 
 ### 11.4 Points restant à confirmer avec l'équipe
 
 - « ~3000 mots » : **inclut ou exclut** la liste des sources en annexe ?
-- Existe-t-il un **formulaire / on-boarding** existant dont l'agent doit lire les
-  paramètres, ou les fichiers YAML font-ils foi ?
-- Destinataires et thèmes prioritaires pour les premières requêtes en production.
+- ~~Existe-t-il un **formulaire / on-boarding** existant dont l'agent doit lire les
+  paramètres, ou les fichiers YAML font-ils foi ?~~ → en attendant une réponse, les
+  réponses d'on-boarding sont modélisées dans `profiles/onboarding.yaml` ; brancher un
+  formulaire existant reviendrait à remplacer le chargement de ce fichier, sans toucher
+  au reste.
+- Destinataires et thèmes prioritaires pour les premières requêtes en production —
+  aujourd'hui : `ai_healthcare_fr` (mensuel) et `competitors_quarterly` (trimestriel).
 
 ---
 

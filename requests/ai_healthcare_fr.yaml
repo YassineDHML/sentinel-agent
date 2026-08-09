@@ -27,7 +27,17 @@ sector: santé
 # {F} the executive's priority objective
 objective: growth
 
+# Cadence + scheduling: the daily dispatcher produces this once per calendar
+# month (see `python -m sentinel.schedule --dry-run`). Set `scheduled: false` to
+# park the request without deleting it — it stays runnable by hand with
+#     python -m sentinel.research --profile requests/ai_healthcare_fr.yaml
 cadence: monthly
+scheduled: true
+
+# Recipients omitted on purpose: falls back to profiles/onboarding.yaml, then to
+# config.yaml's report.recipients.
+subject_prefix: Sentinel · IA & Santé
+
 word_target: 3000
 word_tolerance: 250
 

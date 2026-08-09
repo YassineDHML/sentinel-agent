@@ -19,9 +19,11 @@ Development is **incremental, one phase at a time**, per the approved build plan
 whole app at once. At the end of each phase: summarize, give run/verify steps, then stop and wait for
 the user before starting the next phase. If scope is ambiguous, ask — don't invent it.
 
-Phases 0–10 delivered the v1 weekly watch. Phases 11+ adapt it to the team's **v4 amendment**
+Phases 0–10 delivered the v1 weekly watch. Phases 11–17 adapted it to the team's **v4 amendment**
 (`docs/cahier_des_charges_sentinel.md` §11): two parameterized capabilities — a ~3000-word
-deep-research report and a competitor report. Two rules govern that work:
+deep-research report and a competitor report — plus per-request scheduling. Both capabilities and
+the scheduler are delivered; what remains is namespacing `trends` per request. Two rules govern
+that work:
 
 - **The v1 weekly watch must not change.** It is in production. A golden-file test
   (`tests/test_report_snapshot.py`) compares its rendered HTML byte-for-byte; every v2 feature is
@@ -83,6 +85,15 @@ that require reading several files to understand:
   B = a web source actually retrieved, C = projection anchored to A/B **and** visibly labelled a
   hypothesis. **The model emits evidence ids, never URLs**, so a fabricated link is structurally
   impossible. Rejected claims are counted, not reworded.
+- **Scheduling has no `next_run_at`.** A request is due when we are inside a period of its cadence
+  and the `runs` ledger has no row for `(slug, period_key)`. That is why a missed day self-heals, a
+  double dispatch is a no-op, and a `failed` run retries *tomorrow* rather than next period.
+  `schedule/due.py` is pure; `schedule/runs.py` owns the claim protocol (INSERT guarded by
+  `UNIQUE(request_slug, period_key)`, plus a compare-and-swap UPDATE to reclaim a `failed` row or a
+  `running` row abandoned by a killed CI job). Claims pass `retry_on=retry_unless_unique` because
+  `SupabaseDB.execute` otherwise retries the *expected* collision five times with backoff.
+- **`requests/weekly_ai_saas.yaml` carries `scheduled: false`** — `weekly.yml` already runs the
+  production watch; two owners would mean two Monday emails. A test pins the flag.
 
 ## Conventions
 
@@ -107,6 +118,10 @@ The package uses a `src/` layout, so it must be importable (e.g. `pip install -e
 - Run tests: `pytest`
 - Run a single test: `pytest tests/test_<module>.py::<test_name>`
 - Run the pipeline (dry run, no email / no DB writes): `python -m sentinel.pipeline --dry-run`
+- Deep research / competitors: `python -m sentinel.research --profile requests/<slug>.yaml --dry-run`
+  · `python -m sentinel.competitors --dry-run`
+- Scheduling: `python -m sentinel.schedule --dry-run` (plan only — generates and sends nothing;
+  stricter than the other CLIs' `--dry-run`, which still produce a local report)
 
 > Tests mock all external calls — they must never hit live APIs or require secrets.
 > Some of the above are the intended interface as modules land phase by phase; verify a module exists
@@ -123,12 +138,16 @@ src/sentinel/
   collect/             # rss, hackernews, producthunt, googlenews, gnews, fulltext
   process/             # relevance filter, dedup (url + title similarity), tagging
   analyze/             # llm client (gemini primary + groq fallback), summarize, classify, trends
-  report/              # jinja2 builder
+  request/             # request profiles ({A}..{F}), settings overlay, locale, onboarding
+  research/            # grounding, evidence, citations, deep research, competitors
+  schedule/            # per-request cadence: due-ness, runs ledger, daily dispatcher
+  report/              # jinja2 builders (weekly · research · competitor)
   deliver/             # email (gmail smtp), slack webhook
   pipeline.py          # orchestration / entrypoint
 templates/             # jinja2 html
+requests/ · profiles/  # one YAML per report request · company + onboarding profiles
 scripts/backfill.py    # seed historical trends
 tests/
-.github/workflows/     # weekly.yml + keepalive.yml
+.github/workflows/     # weekly.yml + dispatch.yml + keepalive.yml
 config.yaml · .env.example · requirements.txt · README.md
 ```

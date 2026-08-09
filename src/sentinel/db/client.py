@@ -16,7 +16,7 @@ credentials present.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from ..config import get_secret
 from ..logging_conf import get_logger
@@ -111,17 +111,25 @@ class SupabaseDB:
         """Return an RPC query builder (``client.rpc(fn, params)``)."""
         return self._client.rpc(fn, params)
 
-    def execute(self, query: Any):
+    def execute(self, query: Any, *, retry_on: Callable[[Exception], bool] | None = None):
         """Run ``query.execute()`` with exponential-backoff retry.
 
         Args:
             query: A postgrest/RPC request builder exposing ``.execute()``.
+            retry_on: Predicate deciding whether a given exception is worth
+                retrying. ``None`` (the default) retries everything, which is the
+                historical behaviour and the right policy for a cold start. Pass
+                :func:`sentinel.db.errors.retry_unless_unique` for a query whose
+                failure may be *deterministic* — a unique-constraint violation
+                fails identically on every attempt, so retrying it just burns
+                15 s of backoff and logs five misleading warnings.
 
         Returns:
             The SDK ``APIResponse`` (has ``.data`` and ``.count``).
 
         Raises:
-            The last underlying exception if all attempts fail.
+            The last underlying exception if all attempts fail, or immediately if
+            ``retry_on`` rejects it.
         """
         delay = self._base_delay
         last_exc: Exception | None = None
@@ -130,6 +138,9 @@ class SupabaseDB:
                 return query.execute()
             except Exception as exc:  # noqa: BLE001 - cold start can surface many error types
                 last_exc = exc
+                if retry_on is not None and not retry_on(exc):
+                    logger.debug("Supabase query failed with a non-retryable error: %s", exc)
+                    raise
                 if attempt >= self._attempts:
                     logger.error("Supabase query failed after %d attempt(s): %s", attempt, exc)
                     raise

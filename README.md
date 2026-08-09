@@ -19,21 +19,23 @@ analysis, trends, reporting, delivery, the orchestrating pipeline and the GitHub
 Actions workflows (weekly run + Supabase keep-alive) are all implemented, tested and
 deployed.
 
-**In progress — parameterized deep research (v2).** The team specified two new
-capabilities (see the v4 amendment, §11 of the
-[cahier des charges](docs/cahier_des_charges_sentinel.md)): a ~3000-word deep-research
-report parameterized by theme / language / geography / horizon / sector / objective,
-and a competitor-comparison report. Delivered so far:
+**Parameterized deep research (v2) — both capabilities delivered.** The team
+specified two new capabilities (see the v4 amendment, §11 of the
+[cahier des charges](docs/cahier_des_charges_sentinel.md)); both now run end to end:
 
 - **request profiles** — any theme, language and region via `requests/<slug>.yaml`
   (`--profile`), with the weekly report verified byte-identical;
 - **grounded web search** — confirmed working on the free tier, reaching McKinsey,
   BCG, Deloitte, Gartner, Forrester, IDC, WHO and OECD publications;
 - **three-tier citation policy** enforced in code, so named sources and forward
-  projections are possible without weakening the anti-hallucination guarantee.
+  projections are possible without weakening the anti-hallucination guarantee;
+- **capability 1** — the ~3000-word deep-research report (`python -m sentinel.research`);
+- **capability 2** — the competitor comparison report (`python -m sentinel.competitors`);
+- **per-request scheduling** — each request declares its own cadence (weekly /
+  monthly / quarterly) and a daily dispatcher delivers it exactly once per period.
 
-Remaining: the two report generators, per-request scheduling, and multi-theme
-trend memory.
+Remaining: multi-theme trend memory (letting several themes track trends
+independently, which today's globally-keyed `trends` table cannot do).
 
 ## Setup
 
@@ -101,6 +103,44 @@ LLM usage to the free tier; leftovers are analyzed on later runs). Individual st
 are runnable too (`python -m sentinel.collect.rss`, `... .analyze`, `... .report`,
 `... .deliver`) — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §10.
 
+## Running the parameterized reports
+
+```bash
+python -m sentinel.research --profile requests/ai_healthcare_fr.yaml --dry-run
+python -m sentinel.competitors --dry-run
+```
+
+Each reads a request file from [`requests/`](requests/) (the {A}..{F} parameters) and
+writes an email-ready HTML report to `output/`. `--dry-run` still does the real
+research; it just skips the database archive and the email.
+
+## Scheduling (per-request cadence)
+
+Every request declares a `cadence:` — `weekly`, `monthly`, `quarterly` or `once`. A
+**daily** dispatcher works out which requests are due and produces exactly one report
+per request per period:
+
+```bash
+python -m sentinel.schedule --dry-run     # what would run today; generates nothing
+python -m sentinel.schedule               # run + deliver everything due
+```
+
+Due-ness comes from the calendar plus the `runs` ledger in Supabase, not from a timer,
+which gives three properties worth knowing: a **missed day is harmless** (the period is
+still current tomorrow), **running twice a day produces one report**, and a **failed
+request is retried tomorrow** rather than lost until the next period. Useful flags:
+`--only <slug>`, `--force` (re-run a period already delivered), `--date 2026-09-01`
+(plan as if it were that day), `--max-runs N` (cap reports per dispatch; the rest are
+deferred to the next day, and reported).
+
+> The production weekly watch is deliberately **not** dispatched this way —
+> `weekly.yml` already owns it, so `requests/weekly_ai_saas.yaml` carries
+> `scheduled: false`. Two owners would mean two Monday emails.
+
+Organisation-wide defaults ({B} language, recipients, default company profile) live in
+[`profiles/onboarding.yaml`](profiles/onboarding.yaml); any key a request omits is
+inherited from there, then from `config.yaml`.
+
 ## Running the tests
 
 ```bash
@@ -112,13 +152,17 @@ Tests mock all external calls — they never hit live APIs or require secrets.
 
 ## Deployment (GitHub Actions)
 
-Two workflows in [`.github/workflows/`](.github/workflows/) run everything in the
+Three workflows in [`.github/workflows/`](.github/workflows/) run everything in the
 cloud, free:
 
 - **`weekly.yml`** — runs the full pipeline on a weekly cron (`0 6 * * 1` = 06:00
   UTC Monday → 07:00 CET / 08:00 CEST, i.e. Monday morning French time; GitHub cron
   is UTC-only). Installs deps, injects all secrets, runs `python -m sentinel.pipeline`,
   and uploads `run.log` + the generated `output/*.html` as a build artifact.
+- **`dispatch.yml`** — runs `python -m sentinel.schedule` **daily** (`30 6 * * *`,
+  half an hour after the weekly slot so the two never contend for the same
+  per-minute LLM quota) and produces whatever request is due that day. Its
+  `workflow_dispatch` inputs expose *dry run*, *only* and *force*.
 - **`keepalive.yml`** — runs `python -m sentinel.db.keepalive` every 3 days
   (`0 5 */3 * *`) so the Supabase free tier never hits its 7-day idle pause.
 
@@ -144,10 +188,11 @@ each of these (values only live here — never in the workflow files or the repo
 
 ### Trigger a manual run
 
-Both workflows expose `workflow_dispatch`: repo → **Actions** → pick *Sentinel weekly
-report* (or *Supabase keep-alive*) → **Run workflow**. Use this to smoke-test the
-deployment without waiting for the cron. Download the run log/report from the run's
-**Artifacts** section.
+All three workflows expose `workflow_dispatch`: repo → **Actions** → pick *Sentinel
+weekly report*, *Sentinel request dispatcher* or *Supabase keep-alive* → **Run
+workflow**. Use this to smoke-test the deployment without waiting for the cron.
+Download the run log/report from the run's **Artifacts** section. Start with the
+dispatcher's **dry run** input — it prints the plan and sends nothing.
 
 ## Configuration reference
 

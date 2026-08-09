@@ -1,0 +1,40 @@
+# Capability 2 as a scheduled request: a competitor comparison every quarter.
+#
+# Quarterly rather than monthly on purpose — competitive positioning moves slowly,
+# and each report costs roughly 2 grounded searches per competitor. A monthly
+# cadence would burn free-tier quota to mostly restate last month.
+#
+# Run it by hand any time with:
+#   python -m sentinel.competitors --dry-run
+
+slug: competitors_quarterly
+report_type: competitor_scan
+
+# {A} theme — used for the email subject and the run log; the actual analysis is
+# driven by profiles/company.yaml (who we are) rather than by this string.
+theme: Concurrents directs sur le marché des agents IA
+
+# {B} language
+language: fr
+
+# {C} geographic zone
+geo_zone: europe
+
+# {D} time horizon
+horizon:
+  past_months: 12
+  future_years: 3
+
+# {E} sector focus
+sector: plateformes et agents IA B2B
+
+# {F} priority objective
+objective: differentiation
+
+cadence: quarterly
+scheduled: true
+
+subject_prefix: Sentinel · Analyse concurrentielle
+
+# Who "we" are. Omitting this key inherits profiles/onboarding.yaml's company_ref.
+company_ref: profiles/company.yaml

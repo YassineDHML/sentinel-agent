@@ -30,6 +30,8 @@ import yaml
 from ..config import ConfigError, Feed, _require, _require_type
 from ..logging_conf import get_logger
 from .locale import GEO_ZONES, SUPPORTED_LANGUAGES, Locale, resolve_locale
+from .onboarding import DEFAULTS as ONBOARDING_DEFAULTS
+from .onboarding import Onboarding, load_onboarding
 
 logger = get_logger("request.profile")
 
@@ -72,6 +74,9 @@ class RequestProfile:
 
     # scheduling / delivery
     cadence: str = "monthly"
+    # Whether the daily dispatcher may pick this request up. False keeps the
+    # request runnable by hand (--profile) without ever firing on a schedule.
+    scheduled: bool = True
     recipients: list[str] = field(default_factory=list)
     subject_prefix: str | None = None
 
@@ -112,6 +117,7 @@ class RequestProfile:
             bits.append(f"sector={self.sector}")
         bits.append(f"objective={self.objective}")
         bits.append(f"horizon=-{self.horizon_past_months}m/+{self.horizon_future_years}y")
+        bits.append(f"cadence={self.cadence}{'' if self.scheduled else ' (unscheduled)'}")
         return " · ".join(bits)
 
 
@@ -140,13 +146,27 @@ def _build_feeds(raw: Any, path: str) -> list[Feed] | None:
     return feeds
 
 
-def profile_from_dict(data: dict[str, Any], *, slug: str | None = None) -> RequestProfile:
+def profile_from_dict(
+    data: dict[str, Any],
+    *,
+    slug: str | None = None,
+    defaults: Onboarding | None = None,
+) -> RequestProfile:
     """Validate a parsed mapping into a :class:`RequestProfile`.
+
+    Args:
+        data: The parsed YAML mapping.
+        slug: Fallback slug when the file doesn't set one (usually the filename).
+        defaults: Org-wide answers for keys the request omits (see
+            :mod:`sentinel.request.onboarding`). ``None`` uses the built-in
+            defaults, which are byte-identical to the pre-onboarding behaviour —
+            so every existing caller and test is unaffected.
 
     Raises:
         ConfigError: On a missing required key or an out-of-enum value.
     """
     _require_type(data, dict, "<root>")
+    base = defaults or ONBOARDING_DEFAULTS
     resolved_slug = str(data.get("slug") or slug or "")
     if not resolved_slug:
         raise ConfigError("request profile needs a 'slug' (or a filename to derive it from)")
@@ -159,17 +179,17 @@ def profile_from_dict(data: dict[str, Any], *, slug: str | None = None) -> Reque
     if report_type not in REPORT_TYPES:
         raise ConfigError(f"report_type {report_type!r} must be one of {list(REPORT_TYPES)}")
 
-    language = str(data.get("language", "fr")).lower()
+    language = str(data.get("language", base.language)).lower()
     if language not in SUPPORTED_LANGUAGES:
         raise ConfigError(
             f"language {language!r} not supported; expected one of {list(SUPPORTED_LANGUAGES)}"
         )
 
-    geo_zone = str(data.get("geo_zone", "world")).lower()
+    geo_zone = str(data.get("geo_zone", base.geo_zone)).lower()
     if geo_zone not in GEO_ZONES:
         raise ConfigError(f"geo_zone {geo_zone!r} must be one of {list(GEO_ZONES)}")
 
-    objective = str(data.get("objective", "growth")).lower()
+    objective = str(data.get("objective", base.objective)).lower()
     if objective not in OBJECTIVES:
         raise ConfigError(f"objective {objective!r} must be one of {list(OBJECTIVES)}")
 
@@ -179,8 +199,8 @@ def profile_from_dict(data: dict[str, Any], *, slug: str | None = None) -> Reque
 
     horizon = data.get("horizon") or {}
     _require_type(horizon, dict, "horizon")
-    past_months = int(horizon.get("past_months", 12))
-    future_years = int(horizon.get("future_years", 3))
+    past_months = int(horizon.get("past_months", base.horizon_past_months))
+    future_years = int(horizon.get("future_years", base.horizon_future_years))
     if past_months <= 0:
         raise ConfigError("horizon.past_months must be positive")
     if future_years < 0:
@@ -197,7 +217,8 @@ def profile_from_dict(data: dict[str, Any], *, slug: str | None = None) -> Reque
     if topics is not None and not topics:
         raise ConfigError("'topics' override must not be an empty list (omit the key instead)")
 
-    if report_type == "competitor_scan" and not data.get("company_ref"):
+    company_ref = data.get("company_ref") or base.company_ref
+    if report_type == "competitor_scan" and not company_ref:
         raise ConfigError("report_type 'competitor_scan' requires a 'company_ref'")
 
     sector = data.get("sector")
@@ -212,8 +233,10 @@ def profile_from_dict(data: dict[str, Any], *, slug: str | None = None) -> Reque
         sector=str(sector).strip() if sector else None,
         objective=objective,
         cadence=cadence,
-        recipients=_str_list(data.get("recipients"), "recipients") or [],
-        subject_prefix=(str(data["subject_prefix"]) if data.get("subject_prefix") else None),
+        scheduled=bool(data.get("scheduled", True)),
+        recipients=_str_list(data.get("recipients"), "recipients") or list(base.recipients),
+        subject_prefix=(str(data["subject_prefix"]) if data.get("subject_prefix")
+                        else base.subject_prefix),
         word_target=word_target,
         word_tolerance=word_tolerance,
         discovery_queries=_str_list(data.get("discovery_queries"), "discovery_queries"),
@@ -222,17 +245,18 @@ def profile_from_dict(data: dict[str, Any], *, slug: str | None = None) -> Reque
         topics=topics,
         feeds=_build_feeds(data.get("feeds"), "feeds"),
         benchmark_houses=_str_list(data.get("benchmark_houses"), "benchmark_houses") or [],
-        company_ref=(str(data["company_ref"]) if data.get("company_ref") else None),
+        company_ref=str(company_ref) if company_ref else None,
     )
     # fail fast on an unusable language/zone combination rather than at query time
     profile.locale
     return profile
 
 
-def load_profile(path: str | Path) -> RequestProfile:
+def load_profile(path: str | Path, *, defaults: Onboarding | None = None) -> RequestProfile:
     """Load and validate a request profile from a YAML file.
 
-    The slug defaults to the filename stem when the file doesn't set one.
+    The slug defaults to the filename stem when the file doesn't set one, and any
+    key the file omits falls back to ``profiles/onboarding.yaml``.
     """
     p = Path(path)
     if not p.exists():
@@ -244,9 +268,27 @@ def load_profile(path: str | Path) -> RequestProfile:
             raise ConfigError(f"request profile not found: {path}")
     with p.open(encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
-    profile = profile_from_dict(data, slug=p.stem)
+    profile = profile_from_dict(data, slug=p.stem, defaults=defaults or load_onboarding())
     logger.info("Loaded request profile — %s", profile.describe())
     return profile
+
+
+def load_profiles(
+    directory: str | Path | None = None, *, defaults: Onboarding | None = None
+) -> list[RequestProfile]:
+    """Load every request profile in ``directory``, skipping unreadable ones.
+
+    One malformed file must not stop the scheduler from dispatching the others,
+    so a broken profile is logged and dropped rather than raised.
+    """
+    shared = defaults or load_onboarding()
+    profiles: list[RequestProfile] = []
+    for path in list_profiles(directory):
+        try:
+            profiles.append(load_profile(path, defaults=shared))
+        except (ConfigError, yaml.YAMLError) as exc:
+            logger.error("Skipping unusable request profile %s: %s", path.name, exc)
+    return profiles
 
 
 def list_profiles(directory: str | Path | None = None) -> list[Path]:

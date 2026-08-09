@@ -1,0 +1,34 @@
+# Organisation-wide defaults for report requests.
+#
+# The specification defines {B} as "the report language (default: the one from
+# on-boarding)". This file IS that on-boarding: answer each question once here and
+# every request in requests/*.yaml inherits it.
+#
+# A request that sets a key always wins over this file. This file is optional —
+# delete it and the built-in defaults below apply unchanged.
+
+# {B} — report language for requests that don't state one
+language: fr
+
+# {C} — default geographic zone
+geo_zone: world
+
+# {F} — the executive's usual priority objective
+objective: growth
+
+# {D} — default time horizon
+horizon:
+  past_months: 12
+  future_years: 3
+
+# Default email recipients for scheduled requests. A request's own `recipients:`
+# takes precedence; if both are empty, config.yaml's report.recipients is used.
+# Left empty on purpose: the production weekly watch already has its recipients in
+# config.yaml, and an unintended broadcast is worse than a missing one.
+recipients: []
+
+# Default subject prefix. Null => the dispatcher builds one from the request theme.
+subject_prefix: null
+
+# Default company profile for competitor requests ({company_ref}).
+company_ref: profiles/company.yaml

@@ -30,5 +30,13 @@ objective: innovation
 
 cadence: weekly
 
+# NOT dispatched by `python -m sentinel.schedule`. The production weekly watch is
+# owned by .github/workflows/weekly.yml, which runs the pipeline directly every
+# Monday. Two owners would mean two Monday emails, so the scheduler leaves this
+# request alone. It stays runnable by hand:
+#     python -m sentinel.pipeline --profile requests/weekly_ai_saas.yaml
+# A test pins this to false — flipping it is a deliberate migration, not a tweak.
+scheduled: false
+
 # Recipients / keywords / topics / feeds intentionally omitted:
 # config.yaml remains the source of truth for the production weekly watch.

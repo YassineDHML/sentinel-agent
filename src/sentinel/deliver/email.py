@@ -58,6 +58,7 @@ def send_report(
     week: str,
     dry_run: bool = False,
     recipients: list[str] | None = None,
+    subject: str | None = None,
     smtp_factory: Any | None = None,
 ) -> bool:
     """Send the report HTML to the configured recipients via Gmail SMTP.
@@ -68,6 +69,10 @@ def send_report(
         week: ISO week, included in the subject line.
         dry_run: If True, log what would be sent and return without connecting.
         recipients: Override the config recipient list (e.g. for a test send).
+        subject: Use this subject verbatim instead of ``"<prefix> — <week>"``.
+            Scheduled requests supply their own so two requests delivered the same
+            week don't arrive with identical subject lines. ``None`` keeps the
+            historical weekly subject exactly.
         smtp_factory: Testing seam — a callable returning a context-manager SMTP
             client. Defaults to ``smtplib.SMTP_SSL(host, port)``.
 
@@ -76,7 +81,7 @@ def send_report(
         no recipients.
     """
     to = recipients if recipients is not None else settings.report.recipients
-    subject = _subject(settings, week)
+    subject = subject or _subject(settings, week)
 
     if not to:
         logger.warning("Email: no recipients configured; skipping send.")

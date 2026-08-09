@@ -1,0 +1,94 @@
+name: Sentinel request dispatcher
+
+# Runs DAILY and produces whatever is due. This is not "the daily report job":
+# each request declares its own cadence (weekly / monthly / quarterly) and the
+# dispatcher generates exactly one report per request per period, using the `runs`
+# ledger in Supabase as the record of what has already been produced.
+#
+# Consequences worth knowing:
+#   * A missed day is harmless — the period is still current tomorrow.
+#   * Running this twice on the same day produces nothing the second time.
+#   * A failed request is retried on the next day's dispatch, not next period.
+#
+# The production weekly watch is NOT dispatched here: weekly.yml owns it, and
+# requests/weekly_ai_saas.yaml carries `scheduled: false` accordingly.
+
+on:
+  schedule:
+    # 06:30 UTC daily — deliberately 30 min after weekly.yml's 06:00 Monday slot,
+    # so the two never contend for the same per-minute LLM quota on a Monday.
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Plan only — show what is due, generate and send nothing"
+        type: boolean
+        default: false
+      only:
+        description: "Dispatch a single request slug (blank = all due)"
+        type: string
+        default: ""
+      force:
+        description: "Re-run a period already in the ledger"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sentinel-dispatch
+  cancel-in-progress: false   # never interrupt an in-flight report
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45   # a deep-research report is the long pole (~10 min)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Dispatch due requests
+        # Secrets are injected as env vars; the app reads them via config.get_secret.
+        # No secret VALUES appear here — only references to GitHub Secrets.
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GNEWS_API_KEY: ${{ secrets.GNEWS_API_KEY }}
+          PRODUCTHUNT_TOKEN: ${{ secrets.PRODUCTHUNT_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          ONLY: ${{ inputs.only }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -o pipefail
+          ARGS=""
+          [ "$DRY_RUN" = "true" ] && ARGS="$ARGS --dry-run"
+          [ "$FORCE" = "true" ]   && ARGS="$ARGS --force"
+          [ -n "$ONLY" ]          && ARGS="$ARGS --only $ONLY"
+          python -m sentinel.schedule $ARGS 2>&1 | tee dispatch.log
+
+      - name: Upload dispatch log + reports
+        if: always()   # keep logs even when a request fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-dispatch-${{ github.run_id }}
+          path: |
+            dispatch.log
+            output/*.html
+          if-no-files-found: warn
+          retention-days: 30

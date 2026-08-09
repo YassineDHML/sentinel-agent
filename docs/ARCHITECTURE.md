@@ -57,11 +57,13 @@ not its ability to run.
 src/sentinel/
   config.py           # config.yaml + .env loading, typed Settings, secret access
   logging_conf.py     # stdlib logging: one 'sentinel.*' logger namespace
+  period.py           # week / month / quarter / ad-hoc reporting periods
   pipeline.py         # THE entrypoint: wires all stages, graceful degradation
   db/
-    schema.sql        # the 3 tables + ping() function (run once in Supabase)
+    schema.sql        # the 5 tables + ping() function (run once in Supabase)
     client.py         # SupabaseDB: supabase-py wrapper + retry/backoff
-    repositories.py   # ArticleRepository / TrendRepository / ReportRepository
+    errors.py         # which PostgreSQL failures are worth retrying (§8f)
+    repositories.py   # Article / Trend / Report / ReportSource repositories
     keepalive.py      # `SELECT 1` ping, called by the keep-alive workflow
   collect/
     base.py           # normalized article dict, @graceful, HTTP helpers
@@ -70,6 +72,8 @@ src/sentinel/
     producthunt.py    # Product Hunt GraphQL v2 (token required, else skips)
     googlenews.py     # Google News RSS search (no key; redirect URLs — see §5)
     gnews.py          # GNews API — DISCOVERY only (quota-capped, snippets)
+    dated.py          # date-bounded discovery for a retrospective horizon {D}
+    resolve.py        # redirect-shell → publisher URL (and its measured limits)
     fulltext.py       # robots-aware page fetch + main-text extraction
   process/
     filter.py         # relevance filter (keywords + actors, word-boundary aware)
@@ -84,27 +88,54 @@ src/sentinel/
     trends.py         # weekly counts, NEW/ONGOING/ACCELERATING, trend digest
     deep_analysis.py  # Gemini-ONLY narrative analysis with enforced citations
     __init__.py       # analyze_articles(): summarize + classify + persist
+  request/            # §8b — the {A}..{F} parameters of a report request
+    profile.py        # RequestProfile: load + validate requests/<slug>.yaml
+    overlay.py        # apply_profile(): profile → per-request Settings
+    locale.py         # {B}×{C} → source language/region parameters
+    onboarding.py     # organisation-wide defaults a request inherits
+  research/           # §8c–8e — grounded sourcing and the two v2 capabilities
+    grounding.py      # the ONLY tool-API touch point; measured SDK behaviour
+    evidence.py       # the evidence store the model cites by id, never by URL
+    citations.py      # the three-tier A/B/C policy, enforced in code
+    contracts.py      # report/block/integrity value objects
+    budget.py         # structural word budgeting (calibrated overshoot)
+    prompts.py        # research prompt text
+    parse.py          # flat-block wire format (salvages truncated responses)
+    runner.py         # capability 1: the ~3000-word deep-research report
+    company.py        # who "we" are (profiles/company.yaml)
+    competitors.py    # capability 2: the competitor comparison report
+  schedule/           # §8f — per-request cadence
+    due.py            # PURE: which requests are due, and why the rest aren't
+    runs.py           # the runs ledger + the claim/reclaim protocol
+    dispatcher.py     # claim → execute the right capability → deliver → record
   report/
     builder.py        # context assembly + Jinja2 render + archive + local file
+    i18n.py           # FR/EN labels; templates hold no natural language
+    research_builder.py / competitor_builder.py
   deliver/
     email.py          # Gmail SMTP (app password), HTML email
     slack.py          # optional incoming webhook, no-ops if unconfigured
-templates/report.html # the email-friendly report template (inline styles only)
-tests/                # 139 tests; ALL external calls mocked (no secrets needed)
+templates/            # report.html · research_report.html · competitor_report.html
+requests/             # one YAML per report request ({A}..{F} + cadence)
+profiles/             # company.yaml (who we are) · onboarding.yaml (org defaults)
+tests/                # 402 tests; ALL external calls mocked (no secrets needed)
 config.yaml           # every non-secret setting (see §9)
 .env / .env.example   # every secret (never committed)
 ```
 
 ## 4. The data model
 
-Three tables (created by [`db/schema.sql`](../src/sentinel/db/schema.sql), run once in the
-Supabase SQL editor):
+Five tables (created by [`db/schema.sql`](../src/sentinel/db/schema.sql), run once in the
+Supabase SQL editor; the file is idempotent, so re-running it after an upgrade only adds
+what is missing):
 
 | Table | Role | Key columns |
 |---|---|---|
 | `articles` | Permanent memory of every article ever kept | `url` **UNIQUE** (exact-dedup key) · `title` · `source` · `actor` · `topics text[]` · `snippet` (feed teaser, always cheap) · `content` (full text, fetched once then cached) · `summary` (LLM) · `processed` (bool) |
-| `trends` | Topic frequency per ISO week | `topic` · `week` (e.g. `"2026-W29"`) · `article_count` · `actors jsonb` · **UNIQUE(topic, week)** so re-running a week overwrites instead of duplicating |
-| `reports` | Archive of every generated report | `week` · `generated_at` · `content_html` |
+| `trends` | Topic frequency per ISO week | `topic` · `week` (e.g. `"2026-W29"`) · `article_count` · `actors jsonb` · **UNIQUE(topic, week)** so re-running a week overwrites instead of duplicating. Global key — see §13 |
+| `reports` | Archive of every generated report | `week` · `generated_at` · `content_html` · plus `report_type` / `request_slug` / `language` / `period_*` / `title` / `word_count` / `params` so several report types and requests coexist |
+| `report_sources` | The citation ledger — one row per source a report actually cited | `report_id` · `tier` (`A`/`B`/`C`) · `url` · `domain` · `title` · `verified`. Makes the anti-hallucination guarantee auditable after the fact |
+| `runs` | The scheduler's ledger — one row per (request, period) | `request_slug` · `period_key` · `status` · `attempts` · `started_at` · **UNIQUE(request_slug, period_key)**, which is what makes "exactly one report per period" true (§8f) |
 
 Plus a `ping()` SQL function: supabase-py talks to PostgREST which can't run raw SQL, so
 the keep-alive's "`SELECT 1`" is this function called via `rpc("ping")`.
@@ -542,6 +573,96 @@ Three deliberate choices:
 `threat_level` and `positioning` are closed enums validated in code; an out-of-set value
 falls back to `medium` with a warning rather than reaching the report.
 
+## 8f. Scheduling — one cadence per request
+
+`python -m sentinel.schedule`
+
+The spec turns "cadence hebdomadaire fixe" into "cadence **par requête**". Each request
+file declares `cadence: weekly | monthly | quarterly | once`, and a **daily** dispatcher
+turns that into delivery.
+
+### Why daily, and why no `next_run_at`
+
+The obvious design is a `next_run_at` timestamp advanced after each run. It is wrong in a
+specific way: it stores a *derived* value that must be advanced correctly on every code
+path, and it **drifts when a run is missed** — a machine down on 1 September computes the
+next due date from "now" and silently skips the month.
+
+So there is no such column. Due-ness is derived from the calendar instead:
+
+> a request is due ⟺ we are inside period *P* of its cadence **and** no run exists for
+> `(slug, P.key)`
+
+Three properties fall out of that, and they are the whole reason for the design:
+
+| Property | Why it holds |
+|---|---|
+| A missed day is harmless | the period is still current tomorrow |
+| Two dispatches the same day → one report | the second finds the run in the ledger |
+| A failure retries **tomorrow**, not next period | `failed` rows never block |
+
+`schedule/due.py` is therefore pure — `(profiles, completed_keys, reference_time) →
+(due, skipped)` — and every scheduling rule is testable without a database or a clock.
+
+### The `runs` ledger and the claim protocol
+
+`UNIQUE(request_slug, period_key)` is the concurrency gate. Claiming a run is an
+`INSERT`; losing a race is a unique violation, not a lock. But a collision cannot simply
+mean "refuse", or a failed run would block its period forever and a job killed at its CI
+timeout would park the request permanently. So on collision the row is re-read and, if
+reclaimable, taken with a **conditional update**:
+
+```sql
+UPDATE runs SET status='running', attempts=attempts+1
+ WHERE id = ? AND status = <the status we observed>   -- + started_at < cutoff if 'running'
+```
+
+Postgres evaluates that predicate under the row lock, so exactly one racer's `UPDATE`
+matches; the loser sees zero affected rows and backs off. `is_blocking()` holds the rule
+in one pure function: `success`/`skipped` block forever, `failed` never blocks, `running`
+blocks while fresh and is reclaimable after `RECLAIM_AFTER_HOURS` (6).
+
+> **`db/errors.py` exists because of this.** `SupabaseDB.execute` retries *everything* —
+> right for a cold start, wrong for a unique violation, which fails identically five
+> times and costs 15 s of backoff plus five alarming warnings for the *expected*
+> outcome. Claims pass `retry_on=retry_unless_unique`. The predicate probes the SQLSTATE
+> attribute **and** the message text, because the SDK does not guarantee a stable
+> exception type — don't reduce it to one of the two.
+
+### What the dispatcher does and doesn't own
+
+It owns three things: what runs (delegated to `due.py`), that it runs once (delegated to
+`runs.py`), and which capability produces which `report_type` — one executor each, every
+one a thin adapter over code that already existed. **No report logic lives in the
+scheduler**; a fourth report type is a new entry in `EXECUTORS`, not an edit here.
+
+Two details worth knowing:
+
+- **`MAX_RUNS_PER_DISPATCH = 2`.** 1 January starts a week, a month *and* a quarter at
+  once, and each deep report is 6–12 LLM calls against per-minute free-tier quotas.
+  Anything over the cap is **deferred and reported**, never silently dropped — and the
+  period-key design means it simply runs tomorrow. Due requests are ordered
+  weekly → monthly → quarterly so the cap truncates the slow report, not the timely one.
+- **The weekly watch is not dispatched here.** `requests/weekly_ai_saas.yaml` carries
+  `scheduled: false` because `weekly.yml` already runs it every Monday; two owners would
+  mean two emails. `cadence` and `scheduled` are separate fields precisely so parking a
+  request doesn't erase how often it should run. A test pins that flag.
+
+Failure is isolated per request: an executor that raises is recorded `failed` and the
+remaining requests still run. A delivery failure leaves the run **successful** — the
+report is written and archived; only the send failed, and that is recorded as a
+degradation rather than throwing away the work.
+
+### `profiles/onboarding.yaml`
+
+{B} is specified as "the report language (default: the one from on-boarding)". That
+default used to be a literal in a dataclass, which is the wrong home for an
+organisation's answer. It now lives in `profiles/onboarding.yaml`, and any key a request
+omits is inherited from it (recipients fall back once more to `config.yaml`). Loading is
+fail-soft — a missing file yields defaults **identical to the previous literals**, so the
+file is inert until someone edits it — but a file that exists and is malformed raises,
+because silently ignoring a typo there would re-language every report.
+
 ## 9. Configuration: two files, one rule
 
 **The rule: secrets in the environment, everything else in `config.yaml`.**
@@ -586,19 +707,34 @@ python -m sentinel.deliver --to me@x.com  # real test email to yourself
 python -m sentinel.pipeline --dry-run --limit 5    # end-to-end, no writes/sends
 python -m sentinel.pipeline                        # the real weekly run
 
-pytest                                     # 139 tests, all externals mocked, no secrets
+# parameterized reports (v2 capabilities)
+python -m sentinel.research --profile requests/ai_healthcare_fr.yaml --dry-run
+python -m sentinel.competitors --dry-run
+
+# scheduling
+python -m sentinel.schedule --dry-run              # plan only: generates/sends nothing
+python -m sentinel.schedule --date 2026-10-02 --dry-run   # plan for another day
+python -m sentinel.schedule --only <slug> --force  # re-run one request's period
+python -m sentinel.schedule                        # run + deliver everything due
+
+pytest                                     # 402 tests, all externals mocked, no secrets
 ```
 
 ## 11. Testing philosophy
 
-`tests/` holds 139 tests and **none of them touch the network, the DB, or an LLM**:
+`tests/` holds 402 tests and **none of them touch the network, the DB, or an LLM**:
 
 - collectors are tested against **saved fixture payloads** (`tests/fixtures/`);
 - Supabase is a `MagicMock`/in-memory fake; the SMTP client and Slack webhook are fakes;
 - LLM providers are scripted fakes (`FakeProvider`), which is how batching, fallback,
   re-ask, and citation-validation logic are asserted deterministically;
 - `tests/test_pipeline.py` runs the **entire pipeline** with every external mocked and
-  asserts stage order and each degradation behavior.
+  asserts stage order and each degradation behavior;
+- `tests/test_report_snapshot.py` compares the weekly report **byte for byte** against
+  `tests/fixtures/report_golden.html` — the tripwire that keeps every v2 feature
+  additive;
+- scheduling is tested with an **explicit reference date** in every case, so no test
+  depends on what day it happens to run.
 
 If you add an integration, keep this invariant: the SDK call goes behind a thin wrapper,
 and tests mock the wrapper. `pytest` must stay runnable on a machine with zero secrets.
@@ -617,30 +753,40 @@ and tests mock the wrapper. `pytest` must stay runnable on a machine with zero s
    best report it can* from whatever survived, and tell you what didn't.
 7. **Strict `==` version pins** — reproducibility beats freshness for an unattended
    pipeline; bump versions deliberately.
+8. **Scheduling derives from the calendar, not a timer** — no `next_run_at` column, so a
+   missed run can't skip a period and a double dispatch can't double-send (§8f).
 
 ## 13. Current status & what's left
 
-Built and tested (Phases 0–8): config/logging, persistence + keep-alive, all five
-collectors + full-text, filter/dedup, LLM analysis, trends, report, delivery, and the
-orchestrating pipeline.
+**The v1 weekly watch is complete and in production** (Phases 0–10): config/logging,
+persistence + keep-alive, all five collectors + full-text, filter/dedup, LLM analysis,
+trends, report, delivery, the orchestrating pipeline, GitHub Actions deployment,
+stabilization/docs, and `scripts/backfill.py`.
 
-Also delivered: GitHub Actions deployment (`weekly.yml` + `keepalive.yml`), stabilization
-and docs, and the historical `scripts/backfill.py`.
+**The v2 amendment is delivered** (Phases 11–17) — both capabilities the team specified
+now run end to end:
 
-**In progress — parameterized report requests (v2).** The team specified two new
-capabilities: a periodic ~3000-word deep-research report parameterized by theme /
-language / geography / time horizon / sector / objective, and a competitor-comparison
-report. Foundations landed first:
-- `period.py` — week/month/quarter/ad-hoc reporting periods (byte-compatible with the
-  existing ISO-week helpers);
-- `collect/dated.py` — arbitrary date-bounded discovery queries;
-- `GeminiProvider` generation knobs (`max_output_tokens`, `tools`, `system_instruction`, …)
-  and `generate_detailed()` for truncation detection + grounding metadata;
-- additive `reports` columns + the `report_sources` citation ledger (A/B/C tiers);
-- a golden-file snapshot test guarding the weekly report against regressions.
+| | |
+|---|---|
+| `period.py` | week / month / quarter / ad-hoc periods, byte-compatible with the ISO-week helpers |
+| `collect/dated.py`, `collect/resolve.py` | date-bounded discovery; redirect resolution (and its measured limits) |
+| `request/` | request profiles ({A}..{F}), the settings overlay, locales, onboarding defaults |
+| `research/grounding.py` | Google Search grounding, verified live on the free tier |
+| `research/citations.py` | the three-tier A/B/C policy, enforced in code |
+| `research/runner.py` | capability 1 — the ~3000-word deep-research report |
+| `research/competitors.py` | capability 2 — the competitor comparison report |
+| `schedule/` | per-request cadence, the `runs` ledger, the daily dispatcher |
 
-Remaining: request profiles (YAML) + settings overlay, search grounding + the three-tier
-citation policy, the two report generators, and per-request scheduling.
+Every one of those is additive: `apply_profile(settings, None) is settings`, and the
+weekly report is still byte-identical to its golden file.
+
+**Remaining — multi-request trend memory.** `trends` is keyed `UNIQUE(topic, week)`
+*globally*, so two requests with different taxonomies would silently corrupt each
+other's counts. Until it is namespaced per request, a profile that overrides `topics` is
+refused write access to the table (`assert_trend_safe`) — it still gets its report, just
+not persisted trends. Namespacing it (`request_trends` keyed by request + period + topic,
+plus a separate weak-signal channel that must never write to `trends`) is the next
+substantial piece of work.
 
 **Known limitation** (measured, not merely unimplemented): Google News links cannot be
 resolved to publisher URLs with any free method — see §5.3. Those items remain
