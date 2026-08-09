@@ -84,22 +84,49 @@ def theme_of(settings: Any, default: str = "AI SaaS B2B") -> str:
     return profile.theme if profile else default
 
 
-def assert_trend_safe(settings: Any) -> bool:
-    """Whether this run may write to the shared ``trends`` table.
+def trend_scope_of(settings: Any) -> str:
+    """The ``trends`` namespace this run reads and writes.
 
-    The ``trends`` table is keyed ``UNIQUE(topic, week)`` **globally**, so two
-    requests with different taxonomies would overwrite each other's counts. Until
-    trends are namespaced per request, a profile that overrides ``topics`` is
-    refused write access (it still gets its report; only trend persistence is
-    skipped).
+    An unparameterized run gets :data:`~sentinel.db.repositories.DEFAULT_TREND_SCOPE`
+    — the historical single-theme watch, which is what every pre-namespacing row
+    belongs to. A profiled run gets its own slug unless it explicitly asks to pool
+    with another scope.
+    """
+    from ..db.repositories import DEFAULT_TREND_SCOPE
+
+    profile = profile_of(settings)
+    if profile is None:
+        return DEFAULT_TREND_SCOPE
+    return profile.effective_trend_scope
+
+
+def assert_trend_safe(settings: Any) -> bool:
+    """Whether this run may persist trends at all.
+
+    Trends used to be keyed ``UNIQUE(topic, week)`` **globally**, so *any* second
+    theme corrupted the first — and the blunt guard here refused trend writes to
+    any profile with a custom taxonomy. Namespacing (`request_slug`) fixes that
+    structurally, and this guard shrinks to the one case namespacing cannot
+    resolve:
+
+        a profile with its **own taxonomy** writing into a **shared scope**.
+
+    That combination is a genuine collision — the shared history's rows would mean
+    two different things — and no key can disambiguate it, so it is still refused
+    (the run still gets its report; only trend persistence is skipped). A custom
+    taxonomy in the profile's *own* scope is now perfectly safe, which is what
+    lifts the Phase 13 restriction.
     """
     profile = profile_of(settings)
-    if profile is not None and profile.has_custom_taxonomy:
+    if profile is None:
+        return True
+    scope = trend_scope_of(settings)
+    if profile.has_custom_taxonomy and scope != profile.slug:
         logger.warning(
-            "Profile %s overrides the canonical topic list; skipping trends persistence "
-            "(the trends table is keyed UNIQUE(topic, week) globally and is not yet "
-            "namespaced per request).",
-            profile.slug,
+            "Profile %s overrides the canonical topic list but writes trends into the "
+            "shared scope %r; skipping trends persistence (two taxonomies in one scope "
+            "cannot be told apart). Remove 'trend_scope' to give it its own history.",
+            profile.slug, scope,
         )
         return False
     return True

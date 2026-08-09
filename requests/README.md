@@ -33,6 +33,31 @@ self-heals, a double dispatch is a no-op, and a failure retries tomorrow.
 already runs the production watch every Monday — two owners would mean two emails. A
 test pins that flag.
 
+## Trend history
+
+Each request keeps its **own** trend history, so several themes can be watched at once
+without corrupting each other's counts. The namespace defaults to the request's slug —
+sharing is opt-in, never something you can forget to opt out of:
+
+```yaml
+trend_scope: __default__     # contribute to the historical single-theme watch
+trend_scope: retail_watch    # or pool with another request
+```
+
+`weekly_ai_saas.yaml` is the one file that sets it, because it *is* the production watch
+and must read the history the unprofiled pipeline has always written.
+
+One combination is still refused: a request that overrides `topics` **and** writes into a
+scope it doesn't own. Two taxonomies in one namespace can't be told apart, so trends are
+simply not persisted for that run (the report is still produced). Remove `trend_scope`
+and it works.
+
+Seed a scope's history from past weeks with:
+
+```bash
+python scripts/backfill.py --weeks 6 --scope <slug>
+```
+
 ## Inherited defaults
 
 Any key a request omits falls back to [`../profiles/onboarding.yaml`](../profiles/onboarding.yaml)

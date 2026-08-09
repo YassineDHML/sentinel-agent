@@ -12,6 +12,7 @@ import pytest
 from sentinel.db import client as client_module
 from sentinel.db.client import SupabaseDB
 from sentinel.db.repositories import (
+    DEFAULT_TREND_SCOPE,
     ArticleRepository,
     ReportRepository,
     TrendRepository,
@@ -105,7 +106,7 @@ def test_article_insert_many_empty_is_noop():
 # --------------------------------------------------------------------------- #
 # TrendRepository
 # --------------------------------------------------------------------------- #
-def test_trend_upsert_on_topic_week():
+def test_trend_upsert_is_keyed_per_scope():
     db, client = _db_with_mock_client()
     client.table.return_value.upsert.return_value.execute.return_value = _resp(
         [{"id": 1, "topic": "AI agents", "week": "2026-W24", "article_count": 3}]
@@ -117,24 +118,58 @@ def test_trend_upsert_on_topic_week():
     assert row["article_count"] == 3
     client.table.assert_called_with("trends")
     args, kwargs = client.table.return_value.upsert.call_args
-    assert kwargs["on_conflict"] == "topic,week"
-    # the row payload carries the (topic, week) key and count/actors
+    assert kwargs["on_conflict"] == "request_slug,week,topic"
     payload = args[0]
     assert payload["topic"] == "AI agents"
     assert payload["week"] == "2026-W24"
     assert payload["actors"] == {"OpenAI": 2}
+    assert payload["request_slug"] == DEFAULT_TREND_SCOPE
+    assert payload["period_kind"] == "week"      # inferred from the key's format
 
 
-def test_trend_get_by_week():
+def test_trend_upsert_stamps_the_repository_scope():
     db, client = _db_with_mock_client()
-    client.table.return_value.select.return_value.eq.return_value.execute.return_value = _resp(
-        [{"topic": "pricing change", "week": "2026-W24"}]
-    )
+    client.table.return_value.upsert.return_value.execute.return_value = _resp([{}])
+
+    TrendRepository(db, scope="ai_healthcare_fr").upsert("IA santé", "2026-M08", 4)
+
+    assert client.table.return_value.upsert.call_args[0][0]["request_slug"] == "ai_healthcare_fr"
+
+
+def test_trend_period_kind_follows_the_key_format():
+    """One column holds every cadence because the keys can't collide."""
+    db, client = _db_with_mock_client()
+    client.table.return_value.upsert.return_value.execute.return_value = _resp([{}])
     repo = TrendRepository(db)
 
+    for key, kind in (("2026-W24", "week"), ("2026-M08", "month"), ("2026-Q3", "quarter")):
+        repo.upsert("t", key, 1)
+        assert client.table.return_value.upsert.call_args[0][0]["period_kind"] == kind
+
+
+def test_trend_reads_are_scoped_too():
+    """A scoped repo must not be able to *see* another request's history."""
+    db, client = _db_with_mock_client()
+    chain = client.table.return_value.select.return_value.eq.return_value.eq
+    chain.return_value.execute.return_value = _resp([{"topic": "pricing change"}])
+    repo = TrendRepository(db, scope="retail_watch")
+
     rows = repo.get_by_week("2026-W24")
+
     assert rows and rows[0]["topic"] == "pricing change"
-    client.table.return_value.select.return_value.eq.assert_called_with("week", "2026-W24")
+    client.table.return_value.select.return_value.eq.assert_called_with(
+        "request_slug", "retail_watch")
+    chain.assert_called_with("week", "2026-W24")
+
+
+def test_scoped_returns_a_sibling_view_and_is_a_noop_for_the_same_scope():
+    db, _ = _db_with_mock_client()
+    repo = TrendRepository(db)
+
+    other = repo.scoped("retail_watch")
+    assert other is not repo and other.scope == "retail_watch" and other.db is repo.db
+    assert repo.scoped(DEFAULT_TREND_SCOPE) is repo
+    assert repo.scoped(None) is repo
 
 
 # --------------------------------------------------------------------------- #

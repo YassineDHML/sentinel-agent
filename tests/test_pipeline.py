@@ -288,18 +288,16 @@ def test_weekly_watch_profile_keeps_the_historical_filename(monkeypatch, tmp_pat
     assert result.report_path.name == "2026-W28.dryrun.html"
 
 
-def test_profile_with_custom_taxonomy_skips_trend_persistence(monkeypatch, tmp_path):
-    """Protects the globally-keyed trends table from colliding taxonomies."""
+def _run_profiled(monkeypatch, tmp_path, profile_data, trend_repo):
+    """Run the live pipeline under a request profile, everything else mocked."""
     monkeypatch.setattr("sentinel.report.builder.DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(pipe, "fetch_fulltext", lambda url: "x " * 200)
     monkeypatch.setattr("sentinel.analyze.llm._sleep", lambda s: None)
 
     from sentinel.request import apply_profile, profile_from_dict
 
-    trend_repo = MemoryTrendRepo()
-    settings = apply_profile(_settings(), profile_from_dict({
-        "slug": "custom_tax", "theme": "T", "topics": ["alpha", "beta"]}))
-    pipe.run_pipeline(
+    settings = apply_profile(_settings(), profile_from_dict(profile_data))
+    return pipe.run_pipeline(
         settings, dry_run=False, week="2026-W28",
         collectors={"rss": lambda: list(RAW_BATCH)},
         llm_client=LLMClient(FakeProvider(), fallback=None, batch_size=8, max_attempts=1),
@@ -308,7 +306,44 @@ def test_profile_with_custom_taxonomy_skips_trend_persistence(monkeypatch, tmp_p
         report_repo=MagicMock(), emailer=MagicMock(return_value=True),
         slacker=MagicMock(return_value=True),
     )
-    assert trend_repo.rows == {}, "custom taxonomy must not be written to shared trends"
+
+
+def test_a_profiled_run_writes_trends_under_its_own_scope(monkeypatch, tmp_path):
+    """Phase 18: several themes track trends without touching each other."""
+    trend_repo = MemoryTrendRepo()
+    # topics the FakeProvider actually returns, so rows really get written
+    _run_profiled(monkeypatch, tmp_path,
+                  {"slug": "retail_watch", "theme": "AI in retail",
+                   "topics": ["product launch", "funding and investment"]}, trend_repo)
+
+    scopes = {scope for (scope, _topic, _week) in trend_repo.rows}
+    assert scopes == {"retail_watch"}, "a request must not write into the shared scope"
+    assert trend_repo.rows, "its own scope must actually receive the counts"
+
+
+def test_two_profiles_sharing_a_topic_do_not_overwrite_each_other(monkeypatch, tmp_path):
+    """The exact corruption the global UNIQUE(topic, week) key allowed."""
+    trend_repo = MemoryTrendRepo()
+    for slug in ("retail_watch", "health_watch"):
+        _run_profiled(monkeypatch, tmp_path,
+                      {"slug": slug, "theme": slug,
+                       "topics": ["product launch", "funding and investment"]}, trend_repo)
+
+    keys = set(trend_repo.rows)
+    assert ("retail_watch", "product launch", "2026-W28") in keys
+    assert ("health_watch", "product launch", "2026-W28") in keys
+
+
+def test_a_custom_taxonomy_in_a_shared_scope_still_skips_persistence(monkeypatch, tmp_path):
+    """The one case namespacing cannot resolve stays refused."""
+    trend_repo = MemoryTrendRepo()
+    result = _run_profiled(monkeypatch, tmp_path,
+                           {"slug": "custom_tax", "theme": "T",
+                            "topics": ["product launch"], "trend_scope": "__default__"},
+                           trend_repo)
+
+    assert trend_repo.rows == {}
+    assert any("not persisted" in s.note for s in result.stages if s.name == "trends")
 
 
 def test_no_llm_skips_analysis_but_report_still_ships(monkeypatch, tmp_path):

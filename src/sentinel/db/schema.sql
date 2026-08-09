@@ -29,21 +29,75 @@ create index if not exists idx_articles_processed    on articles (processed);
 create index if not exists idx_articles_published_at  on articles (published_at desc);
 
 -- =============================================================================
--- trends — topic frequency, week by week.
--- NOTE (beyond the spec's minimal DDL): a UNIQUE(topic, week) constraint is
--- added so the pipeline can UPSERT one row per (topic, week) idempotently
--- (re-runs of the same week update counts instead of duplicating rows).
+-- trends — topic frequency, period by period, PER REQUEST.
+--
+-- NOTE (beyond the spec's minimal DDL): a UNIQUE constraint is added so the
+-- pipeline can UPSERT one row per topic per period idempotently (re-runs of the
+-- same period update counts instead of duplicating rows).
+--
+-- The original key was UNIQUE(topic, week) — GLOBAL. That was correct while
+-- Sentinel watched exactly one theme, and wrong as soon as it watched several:
+-- two requests both counting "regulation" in the same week would silently
+-- overwrite each other, and a read would return a blend of both taxonomies. The
+-- key is therefore namespaced by `request_slug`; '__default__' is the historical
+-- single-theme watch, so every pre-existing row keeps working untouched.
+--
+-- `week` keeps its name but now holds a PERIOD KEY of any cadence ("2026-W32",
+-- "2026-M08", "2026-Q3"). Renaming a column on a live production table is exactly
+-- the kind of change the no-regression rule forbids; `period_kind` is stored
+-- alongside for queryability and is derived from the key's own format.
 -- =============================================================================
 create table if not exists trends (
     id            bigint generated always as identity primary key,
     topic         text not null,          -- from the canonical list (BF-03)
-    week          text not null,          -- ISO week, e.g. "2026-W24"
-    article_count integer,                -- articles on this topic this week
+    week          text not null,          -- period key, e.g. "2026-W24"
+    article_count integer,                -- articles on this topic this period
     actors        jsonb,                  -- actors involved
-    unique (topic, week)
+    unique (topic, week)                  -- superseded below; kept for fresh installs
 );
 
-create index if not exists idx_trends_week on trends (week);
+alter table trends add column if not exists request_slug text not null default '__default__';
+alter table trends add column if not exists period_kind  text not null default 'week';
+
+-- Swap the global uniqueness for a per-scope one. Written as a DO block because
+-- Postgres has no ADD CONSTRAINT IF NOT EXISTS, and the old constraint is matched
+-- by its COLUMNS rather than its name so a differently-named one is still found.
+-- Idempotent: safe to re-run, and a no-op once migrated.
+do $$
+declare
+    con_name text;
+begin
+    for con_name in
+        select con.conname
+          from pg_constraint con
+          join pg_class rel on rel.oid = con.conrelid
+          join pg_namespace nsp on nsp.oid = rel.relnamespace
+         where nsp.nspname = 'public'
+           and rel.relname = 'trends'
+           and con.contype = 'u'
+           and (select array_agg(att.attname::text order by att.attname)
+                  from unnest(con.conkey) as k
+                  join pg_attribute att
+                    on att.attrelid = con.conrelid and att.attnum = k)
+               = array['topic', 'week']
+    loop
+        execute format('alter table trends drop constraint %I', con_name);
+    end loop;
+
+    if not exists (
+        select 1
+          from pg_constraint con
+          join pg_class rel on rel.oid = con.conrelid
+         where rel.relname = 'trends'
+           and con.conname = 'trends_scope_period_topic_key'
+    ) then
+        alter table trends
+            add constraint trends_scope_period_topic_key unique (request_slug, week, topic);
+    end if;
+end $$;
+
+create index if not exists idx_trends_week  on trends (week);
+create index if not exists idx_trends_scope on trends (request_slug, week);
 
 -- =============================================================================
 -- reports — generated reports (archive).

@@ -19,11 +19,11 @@ Development is **incremental, one phase at a time**, per the approved build plan
 whole app at once. At the end of each phase: summarize, give run/verify steps, then stop and wait for
 the user before starting the next phase. If scope is ambiguous, ask — don't invent it.
 
-Phases 0–10 delivered the v1 weekly watch. Phases 11–17 adapted it to the team's **v4 amendment**
+Phases 0–10 delivered the v1 weekly watch. Phases 11–18 adapted it to the team's **v4 amendment**
 (`docs/cahier_des_charges_sentinel.md` §11): two parameterized capabilities — a ~3000-word
-deep-research report and a competitor report — plus per-request scheduling. Both capabilities and
-the scheduler are delivered; what remains is namespacing `trends` per request. Two rules govern
-that work:
+deep-research report and a competitor report — plus per-request scheduling and per-request trend
+memory. All of it is delivered; see `docs/ARCHITECTURE.md` §13 for the remaining known limitations.
+Two rules govern that work:
 
 - **The v1 weekly watch must not change.** It is in production. A golden-file test
   (`tests/test_report_snapshot.py`) compares its rendered HTML byte-for-byte; every v2 feature is
@@ -73,9 +73,21 @@ that require reading several files to understand:
 - **Cron is UTC.** Schedule the weekly workflow so the report lands Monday morning French time (CET/CEST).
 - **Request profiles parameterize a run without touching any stage.** Every stage takes one duck-typed
   `settings` object, so `request/overlay.py::apply_profile` hands it a modified copy carrying {A}..{F}.
-  Only keys the profile sets are overridden. A profile that overrides `topics` is **refused write access
-  to `trends`** — that table is keyed `UNIQUE(topic, week)` *globally*, so two taxonomies would silently
-  corrupt each other's counts.
+  Only keys the profile sets are overridden.
+- **Trends are namespaced per request** (`UNIQUE(request_slug, week, topic)`), and **the scope lives on
+  the repository**, not in call signatures: `TrendRepository(db, scope=...)` filters every read *and*
+  write, so `trends.py` / `report/builder.py` / `pipeline.py` / `backfill.py` needed no changes. A
+  request defaults to its own scope (`trend_scope or slug`) — sharing is opt-in, so you can never
+  forget to opt out. `'__default__'` is the historical single-theme watch and owns every pre-existing
+  row; `requests/weekly_ai_saas.yaml` points at it explicitly, or running the production watch with
+  `--profile` would start an empty second history and mark every topic NEW. `assert_trend_safe` now
+  refuses exactly one thing: a **custom taxonomy** writing into a **shared scope** (no key can
+  disambiguate two taxonomies in one namespace). The `week` column holds a period key of any cadence
+  and keeps its name on purpose — renaming a live production column is the change the no-regression
+  rule forbids.
+- **Weak signals are a derived view, not a table.** `detect_weak_signals()` is a pure function over the
+  trend counts ("keeps coming back but never gets big"). A second store would add a write path that can
+  drift out of sync for no gain.
 - **Grounding and JSON mode cannot be combined** (verified live — the API rejects it). Deep research is
   therefore two-phase: ACQUIRE grounded prose to gather evidence, then WRITE structured JSON *without*
   tools. Also verified: publisher identity arrives in `web.title` (not `web.domain`), `thinking_budget=0`

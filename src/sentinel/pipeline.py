@@ -41,6 +41,7 @@ from .analyze.trends import (
     compute_trend_statuses,
     current_iso_week,
     record_week_trends,
+    scoped_repo,
     week_bounds_iso,
 )
 from .collect.fulltext import fetch_fulltext
@@ -50,11 +51,19 @@ from .collect.hackernews import collect_hackernews
 from .collect.producthunt import collect_producthunt
 from .collect.rss import collect_rss
 from .config import ConfigError, load_settings, require_secrets
+from .db.repositories import DEFAULT_TREND_SCOPE
 from .deliver.email import send_report
 from .deliver.slack import notify
 from .logging_conf import get_logger, setup_logging
 from .process import process_articles
-from .request import apply_profile, assert_trend_safe, load_profile, profile_of, resolve_locale
+from .request import (
+    apply_profile,
+    assert_trend_safe,
+    load_profile,
+    profile_of,
+    resolve_locale,
+    trend_scope_of,
+)
 from .request.locale import zone_is_global
 
 logger = get_logger("pipeline")
@@ -104,16 +113,32 @@ def _log_stage(result: PipelineResult, name: str, count: int, elapsed: float, no
 # In-memory repos (dry-run only: same interface, no network)
 # --------------------------------------------------------------------------- #
 class _MemoryTrendRepo:
-    def __init__(self) -> None:
-        self.rows: dict[tuple[str, str], dict] = {}
+    """Scope-aware in-memory trends, so a dry run behaves like a live one.
+
+    Rows are keyed ``(scope, topic, period)`` exactly as the table is, and
+    :meth:`scoped` returns a view **sharing the same storage** — otherwise a test
+    holding the original object could never see what a scoped run wrote.
+    """
+
+    def __init__(self, scope: str = DEFAULT_TREND_SCOPE) -> None:
+        self.rows: dict[tuple[str, str, str], dict] = {}
+        self.scope = scope
+
+    def scoped(self, scope):
+        if not scope or scope == self.scope:
+            return self
+        view = _MemoryTrendRepo(scope)
+        view.rows = self.rows          # shared storage, different lens
+        return view
 
     def upsert(self, topic, week, article_count, actors=None):
-        self.rows[(topic, week)] = {
-            "topic": topic, "week": week, "article_count": article_count, "actors": actors or {}
+        self.rows[(self.scope, topic, week)] = {
+            "request_slug": self.scope, "topic": topic, "week": week,
+            "article_count": article_count, "actors": actors or {},
         }
 
     def get_by_week(self, week):
-        return [r for (t, w), r in self.rows.items() if w == week]
+        return [r for (s, t, w), r in self.rows.items() if s == self.scope and w == week]
 
 
 # --------------------------------------------------------------------------- #
@@ -282,19 +307,24 @@ def run_pipeline(
     _log_stage(result, "analyze", len(analyzed), t.elapsed,
                note="skipped (no LLM)" if llm_client is None else "")
 
-    # --- 5. trends (record this week + statuses vs history) ---------------- #
+    # --- 5. trends (record this period + statuses vs history) --------------- #
     with _Timer() as t:
-        # A profile with a custom taxonomy must not write to the shared trends table
-        # (keyed UNIQUE(topic, week) globally); it still gets statuses in-memory.
+        # Trends are namespaced per request: this run reads and writes only its own
+        # scope, so several themes can track trends without touching each other.
+        # The one case namespacing can't resolve — a custom taxonomy writing into a
+        # SHARED scope — is still refused (it gets statuses in-memory instead).
+        scope = trend_scope_of(settings)
         trend_safe = assert_trend_safe(settings)
-        t_repo = _MemoryTrendRepo() if (dry_run or not trend_safe) else trend_repo
+        base_repo = _MemoryTrendRepo(scope) if (dry_run or not trend_safe) else trend_repo
+        t_repo = scoped_repo(base_repo, scope)
         record_week_trends(analyzed, t_repo, week=week)
         weeks_back = getattr(settings.app, "weeks_history", None) or DEFAULT_WEEKS_BACK
         statuses = compute_trend_statuses(t_repo, week=week, weeks_back=weeks_back)
         digest = build_trend_digest(statuses, week=week)
     _log_stage(result, "trends", len(statuses), t.elapsed,
-               note="dry-run: vs empty history" if dry_run
-               else ("" if trend_safe else "not persisted (custom taxonomy)"))
+               note=f"scope={scope}" + ("; dry-run: vs empty history" if dry_run
+                    else ("" if trend_safe else "; not persisted (custom taxonomy in a "
+                                               "shared scope)")))
 
     # --- 6. report (deep analysis + render + archive) ----------------------- #
     with _Timer() as t:

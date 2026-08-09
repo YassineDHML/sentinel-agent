@@ -117,6 +117,9 @@ def _main() -> int:
                         help="ISO week to count back from (default: current week)")
     parser.add_argument("--dry-run", action="store_true",
                         help="classify + count but don't write to the trends table")
+    parser.add_argument("--scope", default=None,
+                        help="trend scope to seed (default: the historical weekly watch). "
+                             "Use a request slug to seed that request's own history.")
     args = parser.parse_args()
 
     setup_logging()
@@ -135,8 +138,11 @@ def _main() -> int:
         try:
             require_secrets(["SUPABASE_URL", "SUPABASE_KEY"])
             from sentinel.db import SupabaseDB, TrendRepository
+            from sentinel.db.repositories import DEFAULT_TREND_SCOPE
 
-            trend_repo = TrendRepository(SupabaseDB.connect())
+            trend_repo = TrendRepository(SupabaseDB.connect(),
+                                         scope=args.scope or DEFAULT_TREND_SCOPE)
+            logger.info("Backfilling trend scope %r.", trend_repo.scope)
         except Exception as exc:  # noqa: BLE001
             logger.error("FATAL: cannot connect to Supabase for backfill: %s", exc)
             return 1

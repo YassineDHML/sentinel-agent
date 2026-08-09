@@ -75,6 +75,23 @@ def quarter_key(d: date) -> str:
     return f"{d.year}-Q{(d.month - 1) // 3 + 1}"
 
 
+def kind_of_key(key: str) -> str:
+    """Infer a period's ``kind`` from its key format.
+
+    Keys are self-describing (``2026-W32`` / ``2026-M08`` / ``2026-Q3``), which is
+    what lets a single ``period_key`` column hold every cadence without a separate
+    discriminator: two kinds can never produce the same string. Anything
+    unrecognised is :data:`ADHOC`.
+    """
+    if _WEEK_RE.match(key):
+        return WEEK
+    if _MONTH_RE.match(key):
+        return MONTH
+    if _QUARTER_RE.match(key):
+        return QUARTER
+    return ADHOC
+
+
 def key_for(kind: str, d: date) -> str:
     """Period key of the given ``kind`` containing date ``d``."""
     if kind == WEEK:

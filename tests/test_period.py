@@ -174,3 +174,29 @@ def test_unknown_cadence_raises():
 def test_once_cadence_has_no_recurring_period():
     with pytest.raises(PeriodError):
         period_for_cadence("once")
+
+
+# --------------------------------------------------------------------------- #
+# Key -> kind inference (one period_key column holds every cadence)
+# --------------------------------------------------------------------------- #
+def test_kind_is_inferred_from_the_key_format():
+    from sentinel.period import kind_of_key
+
+    assert kind_of_key("2026-W32") == "week"
+    assert kind_of_key("2026-M08") == "month"
+    assert kind_of_key("2026-Q3") == "quarter"
+
+
+def test_keys_of_different_kinds_can_never_collide():
+    """Why no discriminator column is needed in the unique key."""
+    from sentinel.period import current_period
+
+    keys = {current_period(k).key for k in ("week", "month", "quarter")}
+    assert len(keys) == 3
+
+
+def test_an_unrecognised_key_is_adhoc_not_an_error():
+    from sentinel.period import kind_of_key
+
+    assert kind_of_key("adhoc-2026-01-01_2026-06-30") == "adhoc"
+    assert kind_of_key("garbage") == "adhoc"

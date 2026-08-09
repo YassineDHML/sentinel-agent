@@ -117,6 +117,25 @@ def test_the_weekly_watch_profile_still_declares_english():
     assert load_profile(REQUESTS_DIR / "weekly_ai_saas.yaml").language == "en"
 
 
+def test_the_weekly_watch_profile_shares_the_historical_trend_scope():
+    """Tripwire. Its own scope would mean an empty history and everything NEW."""
+    from sentinel.db.repositories import DEFAULT_TREND_SCOPE
+
+    profile = load_profile(REQUESTS_DIR / "weekly_ai_saas.yaml")
+    assert profile.effective_trend_scope == DEFAULT_TREND_SCOPE
+
+
+def test_every_other_request_keeps_its_own_trend_scope():
+    """Sharing is opt-in; only the production watch may point at __default__."""
+    from sentinel.db.repositories import DEFAULT_TREND_SCOPE
+
+    for profile in load_profiles():
+        if profile.slug == "weekly_ai_saas":
+            continue
+        assert profile.effective_trend_scope != DEFAULT_TREND_SCOPE, profile.slug
+        assert profile.effective_trend_scope == profile.slug
+
+
 def test_the_weekly_watch_profile_overrides_nothing_that_config_owns():
     """Its whole point: running with it must equal running without it."""
     profile = load_profile(REQUESTS_DIR / "weekly_ai_saas.yaml")

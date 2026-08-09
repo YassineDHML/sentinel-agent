@@ -253,7 +253,14 @@ def generate_report(
     # weeks_back comes from config (app.weeks_history) rather than the module
     # default, so the comparison window is configurable per request.
     weeks_back = getattr(settings.app, "weeks_history", None) or DEFAULT_WEEKS_BACK
-    trend_statuses = compute_trend_statuses(trend_repo, week=week, weeks_back=weeks_back)
+    # Trends are namespaced per request. Scoping here rather than at the call site
+    # means every caller (pipeline, `python -m sentinel.report --live`) reads the
+    # right history without passing an extra argument.
+    from ..analyze.trends import scoped_repo
+    from ..request.overlay import trend_scope_of
+
+    trend_statuses = compute_trend_statuses(
+        scoped_repo(trend_repo, trend_scope_of(settings)), week=week, weeks_back=weeks_back)
     digest = build_trend_digest(trend_statuses, week=week)
 
     # The caller (e.g. the pipeline) may have already run the Gemini-only deep

@@ -98,13 +98,46 @@ class ArticleRepository:
         return _first(self.db.execute(query).data)
 
 
+#: Trend scope of the historical single-theme weekly watch. Every row written
+#: before trends were namespaced belongs to it, which is why it is the default:
+#: an unparameterized run reads and writes exactly the history it always did.
+DEFAULT_TREND_SCOPE = "__default__"
+
+#: Conflict target matching ``UNIQUE(request_slug, week, topic)`` in schema.sql.
+_TREND_CONFLICT = "request_slug,week,topic"
+
+
 class TrendRepository:
-    """CRUD for the ``trends`` table (weekly topic frequencies)."""
+    """CRUD for the ``trends`` table (per-topic frequency, period by period).
+
+    **Every instance is bound to one scope.** The scope is a namespace — normally
+    a request's slug — and it is applied to every read *and* every write, so a
+    repository simply cannot see or corrupt another request's history.
+
+    Putting the namespace here rather than in each method is what keeps
+    :mod:`sentinel.analyze.trends`, the report builder, the pipeline and the
+    backfill script completely unchanged: they were already handed a repository,
+    and it is now a scoped one. Same trick as ``apply_profile`` — parameterize the
+    object the stages receive, not the stages.
+
+    The ``week`` column holds the **period key** (``2026-W32``, ``2026-M08``,
+    ``2026-Q3``). It kept its original name because renaming a column on a live
+    production table is precisely the kind of change the no-regression rule
+    forbids; ``period_kind`` is stored alongside it for queryability and is
+    inferred from the key's format.
+    """
 
     TABLE = "trends"
 
-    def __init__(self, db: SupabaseDB) -> None:
+    def __init__(self, db: SupabaseDB, *, scope: str = DEFAULT_TREND_SCOPE) -> None:
         self.db = db
+        self.scope = scope or DEFAULT_TREND_SCOPE
+
+    def scoped(self, scope: str | None) -> "TrendRepository":
+        """Return a view of the same table bound to another scope."""
+        if not scope or scope == self.scope:
+            return self
+        return TrendRepository(self.db, scope=scope)
 
     def upsert(
         self,
@@ -113,37 +146,57 @@ class TrendRepository:
         article_count: int,
         actors: Any | None = None,
     ) -> Row | None:
-        """Insert or update the row for ``(topic, week)``.
+        """Insert or update the row for ``(scope, period, topic)``.
 
-        Relies on the ``UNIQUE(topic, week)`` constraint in schema.sql: a repeat
-        run of the same week updates ``article_count``/``actors`` rather than
-        creating a duplicate row.
+        Relies on the ``UNIQUE(request_slug, week, topic)`` constraint in
+        schema.sql: a repeat run of the same period updates
+        ``article_count``/``actors`` rather than creating a duplicate row, and two
+        scopes counting the same topic no longer overwrite each other.
         """
-        row: Row = {
+        return _first(self.db.execute(
+            self.db.table(self.TABLE).upsert(
+                self._row(topic, week, article_count, actors), on_conflict=_TREND_CONFLICT)
+        ).data)
+
+    def upsert_many(self, rows: list[Row]) -> list[Row]:
+        """Bulk upsert trend rows. Each row is stamped with this repo's scope."""
+        if not rows:
+            return []
+        stamped = [
+            self._row(r["topic"], r["week"], r.get("article_count") or 0, r.get("actors"))
+            for r in rows
+        ]
+        query = self.db.table(self.TABLE).upsert(stamped, on_conflict=_TREND_CONFLICT)
+        return self.db.execute(query).data or []
+
+    def get_by_week(self, week: str) -> list[Row]:
+        """Return this scope's trend rows for a period key (e.g. ``"2026-W24"``)."""
+        query = (self.db.table(self.TABLE).select("*")
+                 .eq("request_slug", self.scope).eq("week", week))
+        return self.db.execute(query).data or []
+
+    def get_by_topic(self, topic: str) -> list[Row]:
+        """Return this scope's rows for one topic (history for acceleration checks)."""
+        query = (self.db.table(self.TABLE).select("*")
+                 .eq("request_slug", self.scope).eq("topic", topic))
+        return self.db.execute(query).data or []
+
+    def list_scopes(self) -> list[str]:
+        """Every trend scope present in the table, sorted. For observability."""
+        rows = self.db.execute(self.db.table(self.TABLE).select("request_slug")).data or []
+        return sorted({r.get("request_slug") or DEFAULT_TREND_SCOPE for r in rows})
+
+    def _row(self, topic: str, week: str, article_count: int, actors: Any) -> Row:
+        from ..period import kind_of_key
+
+        return {
+            "request_slug": self.scope,
+            "period_kind": kind_of_key(week),
             "topic": topic,
             "week": week,
             "article_count": article_count,
             "actors": actors if actors is not None else [],
         }
-        query = self.db.table(self.TABLE).upsert(row, on_conflict="topic,week")
-        return _first(self.db.execute(query).data)
-
-    def upsert_many(self, rows: list[Row]) -> list[Row]:
-        """Bulk upsert trend rows on ``(topic, week)``."""
-        if not rows:
-            return []
-        query = self.db.table(self.TABLE).upsert(rows, on_conflict="topic,week")
-        return self.db.execute(query).data or []
-
-    def get_by_week(self, week: str) -> list[Row]:
-        """Return all trend rows for a given ISO week (e.g. ``"2026-W24"``)."""
-        query = self.db.table(self.TABLE).select("*").eq("week", week)
-        return self.db.execute(query).data or []
-
-    def get_by_topic(self, topic: str) -> list[Row]:
-        """Return all weekly rows for one topic (history for acceleration checks)."""
-        query = self.db.table(self.TABLE).select("*").eq("topic", topic)
-        return self.db.execute(query).data or []
 
 
 class ReportRepository:

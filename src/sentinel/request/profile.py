@@ -92,6 +92,11 @@ class RequestProfile:
     feeds: list[Feed] | None = None
     benchmark_houses: list[str] = field(default_factory=list)
 
+    # Which trend history this request contributes to. ``None`` means "my own"
+    # (the slug). Set it to pool with another request — or to ``__default__`` to
+    # contribute to the historical single-theme watch. See `trend_scope_of`.
+    trend_scope: str | None = None
+
     # capability 2: which company profile to compare against
     company_ref: str | None = None
 
@@ -104,11 +109,21 @@ class RequestProfile:
     def has_custom_taxonomy(self) -> bool:
         """True when the profile overrides the canonical topic list.
 
-        Significant because the ``trends`` table's ``UNIQUE(topic, week)`` key is
-        global: a custom taxonomy must not be written there until trends are
-        namespaced per request.
+        Significant for trend storage: since trends are namespaced per request, a
+        custom taxonomy is safe in its *own* scope but never in a shared one — see
+        :func:`sentinel.request.overlay.assert_trend_safe`.
         """
         return self.topics is not None
+
+    @property
+    def effective_trend_scope(self) -> str:
+        """The trend namespace this request reads and writes.
+
+        Defaults to the slug, so **a new request gets its own history by
+        construction** — you have to opt *in* to sharing, never remember to opt
+        out. That is the whole safety property of the namespacing.
+        """
+        return self.trend_scope or self.slug
 
     def describe(self) -> str:
         """One-line human summary, for logs and report footers."""
@@ -246,6 +261,7 @@ def profile_from_dict(
         feeds=_build_feeds(data.get("feeds"), "feeds"),
         benchmark_houses=_str_list(data.get("benchmark_houses"), "benchmark_houses") or [],
         company_ref=str(company_ref) if company_ref else None,
+        trend_scope=(str(data["trend_scope"]).strip() if data.get("trend_scope") else None),
     )
     # fail fast on an unusable language/zone combination rather than at query time
     profile.locale

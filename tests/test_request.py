@@ -234,13 +234,40 @@ def test_theme_of_falls_back_for_unparameterized_runs():
     assert theme_of(s) == "Quantum computing in finance"
 
 
-def test_trend_write_is_refused_for_custom_taxonomy():
-    """The trends table is keyed UNIQUE(topic, week) globally — protect it."""
-    safe = apply_profile(_settings(), profile_from_dict(MINIMAL))
-    assert assert_trend_safe(safe) is True
+def test_a_request_gets_its_own_trend_scope_by_default():
+    """Own history by construction: you opt IN to sharing, never out."""
+    from sentinel.request import trend_scope_of
 
-    unsafe = apply_profile(_settings(), profile_from_dict({**MINIMAL, "topics": ["x", "y"]}))
-    assert assert_trend_safe(unsafe) is False
+    s = apply_profile(_settings(), profile_from_dict(MINIMAL))
+    assert trend_scope_of(s) == "s"          # the slug, not the shared scope
+
+
+def test_an_unprofiled_run_reads_the_historical_scope():
+    from sentinel.db.repositories import DEFAULT_TREND_SCOPE
+    from sentinel.request import trend_scope_of
+
+    assert trend_scope_of(_settings()) == DEFAULT_TREND_SCOPE
+
+
+def test_a_request_can_opt_into_pooling_with_another_scope():
+    from sentinel.request import trend_scope_of
+
+    s = apply_profile(_settings(),
+                      profile_from_dict({**MINIMAL, "trend_scope": "__default__"}))
+    assert trend_scope_of(s) == "__default__"
+
+
+def test_a_custom_taxonomy_is_allowed_in_its_own_scope():
+    """Phase 18 lifts the Phase 13 restriction: namespacing makes this safe."""
+    own = apply_profile(_settings(), profile_from_dict({**MINIMAL, "topics": ["x", "y"]}))
+    assert assert_trend_safe(own) is True
+
+
+def test_a_custom_taxonomy_is_still_refused_in_a_shared_scope():
+    """The one collision no key can disambiguate: two taxonomies, one namespace."""
+    shared = apply_profile(_settings(), profile_from_dict(
+        {**MINIMAL, "topics": ["x", "y"], "trend_scope": "__default__"}))
+    assert assert_trend_safe(shared) is False
 
 
 def test_trend_write_allowed_without_any_profile():

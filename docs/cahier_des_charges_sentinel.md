@@ -486,6 +486,19 @@ plan d'action). S'appuie sur un **profil d'entreprise** stocké.
   d'après le registre `runs`. Conséquences : un jour manqué se rattrape, une double
   exécution ne produit rien la seconde fois, et un échec est **réessayé le lendemain**
   plutôt que perdu jusqu'à la période suivante.
+- **Mémoire de tendances par requête.** La table `trends` était clé-unique
+  `(topic, week)` **globalement** — correct tant que Sentinel surveillait un seul thème,
+  faux dès qu'il en surveille plusieurs : deux requêtes comptant le même tag la même
+  semaine s'écrasaient mutuellement. La clé est désormais `(request_slug, week, topic)` et
+  le *scope* est porté par le **dépôt** (`TrendRepository(db, scope=...)`), qui filtre
+  chaque lecture *et* chaque écriture — aucune étape du pipeline n'a eu à changer. Une
+  requête reçoit sa propre histoire **par défaut** : le partage est explicite, jamais un
+  oubli. Le scope `__default__` désigne la veille historique et détient toutes les lignes
+  antérieures. Reste refusé le seul cas qu'aucune clé ne peut départager : une **taxonomie
+  propre** écrite dans un **scope partagé**.
+- **Signaux faibles = une lecture, pas une seconde table.** `detect_weak_signals()` est une
+  fonction pure sur les mêmes comptages (« un sujet qui revient sans jamais grossir »),
+  ce qui évite un second chemin d'écriture susceptible de diverger.
 - **Non-régression** : le rapport hebdomadaire v3 est protégé par un test de comparaison
   **octet par octet** ; toutes les évolutions v4 sont additives et désactivées par défaut
   en l'absence de profil de requête. La veille hebdomadaire de production n'est

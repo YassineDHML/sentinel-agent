@@ -14,9 +14,11 @@ from sentinel.analyze.trends import (
     compute_trend_statuses,
     count_topics,
     current_iso_week,
+    detect_weak_signals,
     iso_week_of,
     prior_weeks,
     record_week_trends,
+    scoped_repo,
 )
 
 
@@ -152,3 +154,88 @@ def test_build_trend_digest_groups_and_stays_compact():
     # compact: no raw article text/URLs leak into the digest
     assert "http" not in digest
     assert len(digest.splitlines()) < 12
+
+
+# --------------------------------------------------------------------------- #
+# Weak signals — a lens on the same counts, not a second store
+# --------------------------------------------------------------------------- #
+def _status(topic, count, priors):
+    return TrendStatus(topic, "2026-W28", count, "ONGOING", priors)
+
+
+def test_a_recurring_tiny_topic_is_a_weak_signal():
+    """The whole point: too small for the trend view, but it keeps coming back."""
+    signals = detect_weak_signals([_status("edge inference", 1, [0, 1, 0, 1])])
+    assert [s.topic for s in signals] == ["edge inference"]
+
+
+def test_a_one_off_mention_is_noise_not_a_signal():
+    assert detect_weak_signals([_status("random", 1, [0, 0, 0, 0])]) == []
+
+
+def test_a_real_trend_is_not_a_weak_signal():
+    assert detect_weak_signals([_status("AI agents", 12, [3, 4, 5, 6])]) == []
+
+
+def test_a_fading_trend_is_not_reported_as_emerging():
+    """It was big last month; that is decline, a different phenomenon."""
+    assert detect_weak_signals([_status("crypto", 1, [9, 7, 4, 2])]) == []
+
+
+def test_an_absent_topic_is_not_a_signal():
+    assert detect_weak_signals([_status("gone", 0, [1, 1, 1, 1])]) == []
+
+
+def test_weak_signals_are_ranked_by_persistence():
+    signals = detect_weak_signals([
+        _status("occasional", 1, [0, 0, 0, 1]),
+        _status("persistent", 1, [1, 1, 1, 1]),
+    ])
+    assert [s.topic for s in signals] == ["persistent", "occasional"]
+
+
+def test_the_digest_names_weak_signals_without_repeating_their_detail():
+    repo = FakeTrendRepo()
+    _seed_history(repo)          # "pricing change" is 2/week, every week
+    digest = build_trend_digest(compute_trend_statuses(repo, week="2026-W28"),
+                                week="2026-W28")
+
+    assert "WEAK SIGNALS" in digest
+    assert "pricing change" in digest
+    # still compact: one extra LINE, not a repeated block
+    assert sum(1 for line in digest.splitlines() if "WEAK SIGNALS" in line) == 1
+    assert len(digest.splitlines()) < 12
+
+
+def test_the_digest_omits_the_section_entirely_when_there_is_nothing():
+    digest = build_trend_digest([_status("AI agents", 12, [3, 4, 5, 6])], week="2026-W28")
+    assert "WEAK SIGNALS" not in digest
+
+
+# --------------------------------------------------------------------------- #
+# Scoping helper
+# --------------------------------------------------------------------------- #
+class ScopedFake(FakeTrendRepo):
+    def __init__(self, scope="__default__"):
+        super().__init__()
+        self.scope = scope
+
+    def scoped(self, scope):
+        view = ScopedFake(scope)
+        view.rows = self.rows
+        return view
+
+
+def test_scoped_repo_binds_a_scope_when_supported():
+    assert scoped_repo(ScopedFake(), "retail").scope == "retail"
+
+
+def test_scoped_repo_leaves_a_plain_fake_alone():
+    """A caller's ad-hoc double without scoped() must keep working."""
+    repo = FakeTrendRepo()
+    assert scoped_repo(repo, "retail") is repo
+
+
+def test_scoped_repo_is_a_noop_without_a_scope():
+    repo = ScopedFake()
+    assert scoped_repo(repo, None) is repo

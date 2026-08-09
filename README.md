@@ -32,10 +32,14 @@ specified two new capabilities (see the v4 amendment, §11 of the
 - **capability 1** — the ~3000-word deep-research report (`python -m sentinel.research`);
 - **capability 2** — the competitor comparison report (`python -m sentinel.competitors`);
 - **per-request scheduling** — each request declares its own cadence (weekly /
-  monthly / quarterly) and a daily dispatcher delivers it exactly once per period.
+  monthly / quarterly) and a daily dispatcher delivers it exactly once per period;
+- **namespaced trend memory** — each request keeps its own independent trend
+  history, so several themes can be watched at once without corrupting each
+  other's counts, plus weak-signal detection over that history.
 
-Remaining: multi-theme trend memory (letting several themes track trends
-independently, which today's globally-keyed `trends` table cannot do).
+Every v2 feature is additive: with no request profile the pipeline behaves exactly
+as it always has, and the weekly report is verified byte-identical against a
+committed golden file on every test run.
 
 ## Setup
 

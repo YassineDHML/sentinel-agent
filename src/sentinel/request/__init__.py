@@ -8,7 +8,7 @@ runs against per-request settings without any signature change.
 
 from .locale import GEO_ZONES, SUPPORTED_LANGUAGES, Locale, LocaleError, resolve_locale
 from .onboarding import Onboarding, load_onboarding
-from .overlay import apply_profile, assert_trend_safe, profile_of, theme_of
+from .overlay import apply_profile, assert_trend_safe, profile_of, theme_of, trend_scope_of
 from .profile import (
     CADENCES,
     OBJECTIVES,
@@ -32,6 +32,7 @@ __all__ = [
     "profile_of",
     "theme_of",
     "assert_trend_safe",
+    "trend_scope_of",
     "resolve_locale",
     "Locale",
     "LocaleError",

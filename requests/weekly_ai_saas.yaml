@@ -30,6 +30,13 @@ objective: innovation
 
 cadence: weekly
 
+# Trends are namespaced per request, and a request defaults to its OWN history.
+# This one must not: it *is* the production weekly watch, so it has to read and
+# write the same trend history the unprofiled pipeline has always used. Without
+# this line, running the watch with --profile would silently start a second,
+# empty history and every topic would look NEW. A test pins it.
+trend_scope: __default__
+
 # NOT dispatched by `python -m sentinel.schedule`. The production weekly watch is
 # owned by .github/workflows/weekly.yml, which runs the pipeline directly every
 # Monday. Two owners would mean two Monday emails, so the scheduler leaves this

@@ -262,6 +262,9 @@ def test_generate_report_uses_configured_weeks_history(tmp_path):
     article_repo.list_by_week.return_value = ARTICLES
     trend_repo = MagicMock()
     trend_repo.get_by_week.return_value = []
+    # generate_report scopes the repo to the run's trend namespace; a MagicMock
+    # would auto-create scoped() and hand back a *different* mock, so pin it.
+    trend_repo.scoped.return_value = trend_repo
     settings = _settings()
     settings = dataclasses.replace(
         settings, app=dataclasses.replace(settings.app, weeks_history=6)

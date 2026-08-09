@@ -36,6 +36,10 @@ DEFAULT_WEEKS_BACK = 4
 ACCEL_FACTOR = 1.5      # current must be >= this * prior average
 MIN_ACCEL_COUNT = 3     # ...and at least this many articles, to avoid noise
 
+# Weak-signal thresholds (see detect_weak_signals).
+WEAK_SIGNAL_MAX_COUNT = 2   # above this a topic is a trend, not a weak signal
+WEAK_SIGNAL_MIN_WEEKS = 2   # ...and it has to have come back at least once
+
 
 # --------------------------------------------------------------------------- #
 # ISO week helpers
@@ -103,6 +107,18 @@ def count_topics(articles: list[dict]) -> dict[str, TopicCount]:
             if actor:
                 tc.actors[actor] = tc.actors.get(actor, 0) + 1
     return counts
+
+
+def scoped_repo(repo: Any, scope: str | None) -> Any:
+    """Bind ``repo`` to a trend scope, if it supports scoping.
+
+    Duck-typed on purpose: the real :class:`~sentinel.db.repositories.TrendRepository`
+    and the in-memory stand-ins implement ``scoped()``, while a caller's ad-hoc
+    fake need not. A repo without it is returned unchanged, so nothing that used
+    to work stops working.
+    """
+    scoper = getattr(repo, "scoped", None)
+    return scoper(scope) if (scoper is not None and scope) else repo
 
 
 def record_week_trends(
@@ -195,6 +211,48 @@ def compute_trend_statuses(
 
 
 # --------------------------------------------------------------------------- #
+# Weak signals
+# --------------------------------------------------------------------------- #
+def detect_weak_signals(
+    statuses: list[TrendStatus],
+    *,
+    max_count: int = WEAK_SIGNAL_MAX_COUNT,
+    min_weeks: int = WEAK_SIGNAL_MIN_WEEKS,
+) -> list[TrendStatus]:
+    """Topics that **keep coming back but never get big**.
+
+    The specification asks for *signaux faibles*. The tempting implementation is a
+    second table of "low-frequency signals" — but a weak signal is not new data,
+    it is a different **lens on the same counts**, so this is a pure function over
+    the trend statuses. No extra table, no extra write path, and nothing that
+    could drift out of sync with ``trends``.
+
+    A topic qualifies when all three hold:
+
+    * it is present this period, at ``<= max_count`` articles — below the noise
+      floor of the trend view, which is exactly why it needs its own lens;
+    * it appeared in at least ``min_weeks`` periods of the observed window, so a
+      single passing mention is *not* a signal (that is the noise this excludes);
+    * it never exceeded ``max_count`` in the window — a topic on the way *down*
+      from a real trend is a different phenomenon and is deliberately not
+      reported here.
+
+    Returned most-persistent first, then by current count.
+    """
+    signals: list[TrendStatus] = []
+    for s in statuses:
+        if not 0 < s.count <= max_count:
+            continue
+        if any(c > max_count for c in s.prior_counts):
+            continue                       # a fading trend, not an emerging signal
+        weeks_present = 1 + sum(1 for c in s.prior_counts if c > 0)
+        if weeks_present >= min_weeks:
+            signals.append(s)
+    signals.sort(key=lambda s: (-(1 + sum(1 for c in s.prior_counts if c > 0)), -s.count))
+    return signals
+
+
+# --------------------------------------------------------------------------- #
 # Compressed digest (LLM context, safe for Groq)
 # --------------------------------------------------------------------------- #
 def _top_actors(actors: Any, k: int = 3) -> str:
@@ -238,6 +296,14 @@ def build_trend_digest(statuses: list[TrendStatus], *, week: str | None = None,
             lines.append(" ".join(parts))
         if len(items) > max_per_status:
             lines.append(f"  ... (+{len(items) - max_per_status} more)")
+
+    # One line, names only: the detail is already above under ONGOING/NEW, and
+    # this is a lens on it rather than new data. Omitted entirely when empty.
+    weak = detect_weak_signals(statuses)
+    if weak:
+        names = ", ".join(s.topic for s in weak[:max_per_status])
+        lines.append(f"WEAK SIGNALS (recurring, never above "
+                     f"{WEAK_SIGNAL_MAX_COUNT}/period): {names}")
 
     return "\n".join(lines)
 

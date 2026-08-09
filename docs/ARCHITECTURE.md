@@ -118,7 +118,7 @@ src/sentinel/
 templates/            # report.html · research_report.html · competitor_report.html
 requests/             # one YAML per report request ({A}..{F} + cadence)
 profiles/             # company.yaml (who we are) · onboarding.yaml (org defaults)
-tests/                # 402 tests; ALL external calls mocked (no secrets needed)
+tests/                # 429 tests; ALL external calls mocked (no secrets needed)
 config.yaml           # every non-secret setting (see §9)
 .env / .env.example   # every secret (never committed)
 ```
@@ -132,7 +132,7 @@ what is missing):
 | Table | Role | Key columns |
 |---|---|---|
 | `articles` | Permanent memory of every article ever kept | `url` **UNIQUE** (exact-dedup key) · `title` · `source` · `actor` · `topics text[]` · `snippet` (feed teaser, always cheap) · `content` (full text, fetched once then cached) · `summary` (LLM) · `processed` (bool) |
-| `trends` | Topic frequency per ISO week | `topic` · `week` (e.g. `"2026-W29"`) · `article_count` · `actors jsonb` · **UNIQUE(topic, week)** so re-running a week overwrites instead of duplicating. Global key — see §13 |
+| `trends` | Topic frequency per period, **per request** | `request_slug` (the scope; `'__default__'` = the historical watch) · `topic` · `week` (the period key: `"2026-W29"`, `"2026-M08"`, `"2026-Q3"`) · `period_kind` · `article_count` · `actors jsonb` · **UNIQUE(request_slug, week, topic)** so re-running a period overwrites instead of duplicating, and two requests can't overwrite each other (§5.5) |
 | `reports` | Archive of every generated report | `week` · `generated_at` · `content_html` · plus `report_type` / `request_slug` / `language` / `period_*` / `title` / `word_count` / `params` so several report types and requests coexist |
 | `report_sources` | The citation ledger — one row per source a report actually cited | `report_id` · `tier` (`A`/`B`/`C`) · `url` · `domain` · `title` · `verified`. Makes the anti-hallucination guarantee auditable after the fact |
 | `runs` | The scheduler's ledger — one row per (request, period) | `request_slug` · `period_key` · `status` · `attempts` · `started_at` · **UNIQUE(request_slug, period_key)**, which is what makes "exactly one report per period" true (§8f) |
@@ -279,7 +279,8 @@ reliable: the LLM cannot invent "multi-modal agents" vs "multimodal AI" label va
 [`analyze/trends.py`](../src/sentinel/analyze/trends.py). After analysis:
 
 1. `record_week_trends()` counts, per canonical topic, how many of this week's analyzed
-   articles carry it (plus which actors), and upserts one row per `(topic, week)`.
+   articles carry it (plus which actors), and upserts one row per
+   `(scope, topic, period)` — see *Namespacing* below.
 2. `compute_trend_statuses()` reads the **previous 4 weeks** back from the `trends` table
    and labels each current topic:
    - **NEW** — zero prior appearances;
@@ -292,7 +293,63 @@ reliable: the LLM cannot invent "multi-modal agents" vs "multimodal AI" label va
    cheap for Gemini.
 
 The NEW/ACCELERATING distinction only means something once several weeks of data exist —
-`scripts/backfill.py` (planned, not yet written) will seed past weeks.
+`scripts/backfill.py` seeds past weeks (`--scope` picks which history to seed).
+
+#### Namespacing: one table, one history per request
+
+The original key was `UNIQUE(topic, week)` — **global**. Correct while Sentinel watched
+one theme; wrong the moment it watched several. Two requests both counting `"regulation"`
+in the same week would overwrite each other, and a read would hand back a blend of two
+taxonomies as if it were one history. The Phase 13 stopgap was to refuse trend writes to
+any profile with a custom topic list — blunt, and it *missed* the more insidious case: a
+different theme reusing the **same** canonical tags corrupted the production watch's
+counts without tripping any guard at all.
+
+The key is now `UNIQUE(request_slug, week, topic)`, and **the scope lives on the
+repository, not in the call signatures**:
+
+```python
+TrendRepository(db, scope="retail_watch")     # every read AND write is filtered
+```
+
+That is the same trick as `apply_profile`: parameterize the object the stages receive and
+they need no changes at all — `trends.py`, `report/builder.py`, `pipeline.py` and
+`scripts/backfill.py` are untouched by the namespacing. Two rules make it safe by
+default:
+
+- **A request gets its own history by construction** (`trend_scope` defaults to the slug).
+  You opt *in* to sharing; you can never forget to opt out.
+- **`'__default__'` is the historical single-theme watch.** Every pre-namespacing row
+  belongs to it via the column default, so an unparameterized run reads and writes exactly
+  the history it always did. `requests/weekly_ai_saas.yaml` sets `trend_scope: __default__`
+  explicitly — without it, running the production watch with `--profile` would start a
+  second, empty history and every topic would look NEW. A test pins that.
+
+`assert_trend_safe` shrinks accordingly, to the one collision no key can disambiguate: a
+profile with its **own taxonomy** writing into a **shared scope**. Two taxonomies in one
+namespace mean the same row means two things, so that combination is still refused (the
+run still gets its report; only trend persistence is skipped).
+
+`week` kept its column name while now holding a period key of any cadence (`2026-W32`,
+`2026-M08`, `2026-Q3`): renaming a column on a live production table is exactly the change
+the no-regression rule forbids. Keys are self-describing, so two cadences can never
+collide and no discriminator is needed in the key — `period_kind` is stored beside it for
+queryability, inferred by `period.kind_of_key`.
+
+#### Weak signals are a lens, not a second table
+
+The spec asks for *signaux faibles*. The tempting build is a `low_frequency_signals`
+table — a second write path that can drift out of sync with `trends` for no gain, because
+a weak signal is not new data. `detect_weak_signals()` is therefore a **pure function over
+the same counts**: topics present at ≤ 2 articles that appeared in ≥ 2 periods of the
+window and never exceeded 2 in it — *"it keeps coming back but never gets big"*. The three
+conditions each exclude something specific: a real trend, a one-off mention (the noise),
+and a *fading* trend (decline is a different phenomenon, deliberately out of scope).
+
+It surfaces as one extra line in the digest — names only, since the detail is already
+above — so the LLM sees it without paying for it twice. The weekly report's HTML is
+unchanged: capability 1's deep-research report is where the spec asks for weak signals as
+prose, and it already renders them.
 
 ### 5.6 REPORT — deterministic skeleton, LLM narrative, enforced citations
 
@@ -717,12 +774,12 @@ python -m sentinel.schedule --date 2026-10-02 --dry-run   # plan for another day
 python -m sentinel.schedule --only <slug> --force  # re-run one request's period
 python -m sentinel.schedule                        # run + deliver everything due
 
-pytest                                     # 402 tests, all externals mocked, no secrets
+pytest                                     # 429 tests, all externals mocked, no secrets
 ```
 
 ## 11. Testing philosophy
 
-`tests/` holds 402 tests and **none of them touch the network, the DB, or an LLM**:
+`tests/` holds 429 tests and **none of them touch the network, the DB, or an LLM**:
 
 - collectors are tested against **saved fixture payloads** (`tests/fixtures/`);
 - Supabase is a `MagicMock`/in-memory fake; the SMTP client and Slack webhook are fakes;
@@ -755,6 +812,11 @@ and tests mock the wrapper. `pytest` must stay runnable on a machine with zero s
    pipeline; bump versions deliberately.
 8. **Scheduling derives from the calendar, not a timer** — no `next_run_at` column, so a
    missed run can't skip a period and a double dispatch can't double-send (§8f).
+9. **Namespaces live on the repository, not in call signatures** — a scoped
+   `TrendRepository` filters every read and write, so no stage had to learn about
+   multi-tenancy (§5.5). Same reasoning as `apply_profile`.
+10. **Derived views over second tables** — weak signals are a function of the trend
+    counts, not a parallel store that could drift (§5.5).
 
 ## 13. Current status & what's left
 
@@ -763,7 +825,7 @@ persistence + keep-alive, all five collectors + full-text, filter/dedup, LLM ana
 trends, report, delivery, the orchestrating pipeline, GitHub Actions deployment,
 stabilization/docs, and `scripts/backfill.py`.
 
-**The v2 amendment is delivered** (Phases 11–17) — both capabilities the team specified
+**The v2 amendment is delivered** (Phases 11–18) — both capabilities the team specified
 now run end to end:
 
 | | |
@@ -776,18 +838,21 @@ now run end to end:
 | `research/runner.py` | capability 1 — the ~3000-word deep-research report |
 | `research/competitors.py` | capability 2 — the competitor comparison report |
 | `schedule/` | per-request cadence, the `runs` ledger, the daily dispatcher |
+| namespaced `trends` | one independent trend history per request, plus weak-signal detection (§5.5) |
 
 Every one of those is additive: `apply_profile(settings, None) is settings`, and the
 weekly report is still byte-identical to its golden file.
 
-**Remaining — multi-request trend memory.** `trends` is keyed `UNIQUE(topic, week)`
-*globally*, so two requests with different taxonomies would silently corrupt each
-other's counts. Until it is namespaced per request, a profile that overrides `topics` is
-refused write access to the table (`assert_trend_safe`) — it still gets its report, just
-not persisted trends. Namespacing it (`request_trends` keyed by request + period + topic,
-plus a separate weak-signal channel that must never write to `trends`) is the next
-substantial piece of work.
+**Known limitations, in order of how much they'd bite:**
 
-**Known limitation** (measured, not merely unimplemented): Google News links cannot be
-resolved to publisher URLs with any free method — see §5.3. Those items remain
-title/snippet-only.
+1. **Google News links can't be resolved** to publisher URLs by any free method — see
+   §5.3. Measured, not merely unimplemented; those items stay title/snippet-only.
+2. **A custom taxonomy in a shared trend scope is still refused** (§5.5). This is a
+   deliberate correctness stop, not a gap: two taxonomies in one namespace cannot be told
+   apart. Give the request its own scope and it works.
+3. **Trend history is per request, but articles are not.** The `articles` table is still
+   one global corpus deduplicated by URL, so two requests that both collect a story share
+   the row (and its summary/topics, written by whichever ran first). That is fine while
+   requests share the canonical taxonomy and wasteful when they don't — a per-request
+   `article_analyses` table would fix it, and nothing today depends on the current shape.
+4. **No web UI.** Requests are YAML in the repo, by decision (§11.3 of the spec).
