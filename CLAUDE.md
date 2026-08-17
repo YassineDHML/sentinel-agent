@@ -107,6 +107,22 @@ that require reading several files to understand:
 - **`requests/weekly_ai_saas.yaml` carries `scheduled: false`** — `weekly.yml` already runs the
   production watch; two owners would mean two Monday emails. A test pins the flag.
 
+## Deploying: schema and code are coupled, and they deploy differently
+
+**`db/schema.sql` is applied by hand in the Supabase SQL editor; code reaches production only by
+`git push`.** Two different release channels for one contract — so a schema change that renames or
+re-keys anything must be **pushed with (or before) the DDL is run**, never after.
+
+This has already bitten once. Phase 18 re-keyed `trends` from `UNIQUE(topic, week)` to
+`UNIQUE(request_slug, week, topic)`. The DDL was run while the code sat in unpushed local commits, so
+CI kept running the old `on_conflict="topic,week"` against a constraint that no longer existed and
+the weekly run died with `42P10` for two consecutive weeks. Local verification passed the whole time,
+because locally the code *was* current.
+
+Therefore, after any schema change: check `git status -sb` for `ahead`, and verify against
+**`origin/main`** — `git show origin/main:<file>` — not just the working tree. "Committed" is not
+"deployed". A traceback whose line numbers don't match your local file is the tell.
+
 ## Conventions
 
 - Python 3.11+. Dependencies pinned in `requirements.txt`. No paid APIs/services and no new heavy
