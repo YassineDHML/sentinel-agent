@@ -12,6 +12,10 @@ differences that suit this report:
 * **One grounded call per competitor.** Keeps each JSON response small (so
   truncation is unlikely and cheap), and makes a failed competitor a graceful skip
   rather than a lost report.
+* **Discovery is itself two-phase.** The grounded search returns prose; a separate
+  structured call extracts the company names from it. Scraping those names out of
+  the prose with a regex was tried and produced a phantom competitor — see
+  :func:`_extract_names`.
 * **Numbers are not hedged, they are omitted.** Market share or traction without a
   citation is simply not rendered. The spec invites "argued hypotheses", so those
   are allowed — but only as Tier C: anchored to real evidence and visibly labelled.
@@ -43,6 +47,7 @@ MAX_COMPETITORS = 10
 MIN_COMPETITORS = 5
 DOSSIER_MAX_TOKENS = 6000
 DISCOVERY_MAX_TOKENS = 3000
+EXTRACT_MAX_TOKENS = 2000
 SYNTHESIS_MAX_TOKENS = 4000
 WRITER_THINKING_BUDGET = 512
 
@@ -109,6 +114,24 @@ companies that are genuinely active in this market today.
 
 For each, give the company name and one line on what it sells. Search for real
 companies; do not invent names."""
+
+EXTRACT_PROMPT = """\
+Extract the competitor companies named in the research notes below.
+
+RESEARCH NOTES:
+{findings}
+
+Return only real, named organisations presented as competitors. Section headings,
+field labels ("What it sells", "Why they compete"), product categories and generic
+descriptions are NOT company names — leave them out.
+
+Write each name as the company writes it itself, with no markdown and no
+surrounding punctuation.
+
+Return ONLY this JSON object:
+{{"blocks": [
+  {{"name": "Acme AI", "sells": "one short line on what it sells"}}
+]}}"""
 
 DOSSIER_PROMPT = """\
 Using web search, research the competitor "{name}" as a rival to the company below.
@@ -209,11 +232,15 @@ def discover_competitors(
     grounded_fn: Callable[..., GroundedResult] = grounded_generate,
     store: EvidenceStore | None = None,
     max_n: int = MAX_COMPETITORS,
+    writer: Writer | None = None,
 ) -> tuple[list[str], EvidenceStore]:
     """Find competitor names: the declared ones plus whatever search surfaces.
 
     Declared competitors always survive, so a rival the team already tracks can
     never be dropped by a search that happened to miss it.
+
+    Two calls: a grounded search for prose, then a structured extraction of the
+    names from it (see :func:`_extract_names`).
     """
     store = store or EvidenceStore()
     names: list[str] = list(company.known_competitors)
@@ -223,7 +250,7 @@ def discover_competitors(
     try:
         result = grounded_fn(prompt, model, max_output_tokens=DISCOVERY_MAX_TOKENS)
         store.add_grounded_sources(result.sources)
-        names += _names_from_text(result.text)
+        names += _extract_names(result.text, model, writer=writer)
     except Exception as exc:  # noqa: BLE001 - declared competitors still carry the report
         logger.warning("Competitor discovery failed (%s); using declared list only.", exc)
 
@@ -237,22 +264,37 @@ def discover_competitors(
     return unique[:max_n], store
 
 
-def _names_from_text(text: str) -> list[str]:
-    """Pull candidate company names out of the discovery prose."""
-    import re
+def _extract_names(findings: str, model: str, *, writer: Writer | None = None) -> list[str]:
+    """Pull company names out of the discovery prose with a structured call.
 
-    names: list[str] = []
-    for line in (text or "").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        # "1. Name — what they do" / "- **Name**: ..." / "* Name - ..."
-        m = re.match(r"^(?:[-*\u2022]|\d+[.)])\s*\**\s*([^\n:\u2014\u2013*]{2,60})\**\s*[:\u2014\u2013-]",
-                     line)
-        if m:
-            candidate = m.group(1).strip()
-            if 1 < len(candidate) <= 60 and not candidate.lower().startswith(("http", "the ")):
-                names.append(candidate)
+    A regex over the prose used to do this, and it was wrong in **both**
+    directions. Observed live: it matched the model's own field labels ("What it
+    sells") while missing every real company, because those arrive as markdown
+    headings with no bullet prefix. The phantom then consumed two grounded calls
+    and reached the rendered report — where nothing could catch it, since the
+    citation tiers verify that *sources* are real, not that the *subject* is.
+
+    So discovery now follows the same ACQUIRE -> WRITE split as the rest of the
+    pipeline: grounded prose in, one cheap ungrounded JSON call out. A name can
+    only arrive in the ``name`` field, so a field label can no longer be mistaken
+    for a company.
+
+    Never raises: extraction failing costs the discovered names, not the report —
+    the declared competitors still carry it.
+    """
+    if not (findings or "").strip():
+        return []
+    writer = writer or _default_writer(model)
+    try:
+        payload = salvage_json_blocks(writer(EXTRACT_PROMPT.format(findings=findings[:6000])))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not extract competitor names (%s); declared list only.", exc)
+        return []
+
+    names = [str(b.get("name") or "").strip() for b in payload if isinstance(b, dict)]
+    names = [n for n in names if n]
+    if not names:
+        logger.warning("Discovery found sources but no usable company names.")
     return names
 
 
@@ -370,8 +412,8 @@ def run_competitor_report(
     writer = writer or _default_writer(model)
 
     names, store = discover_competitors(company, model, grounded_fn=grounded_fn,
-                                        max_n=max_competitors)
-    integrity.llm_calls += 1
+                                        max_n=max_competitors, writer=writer)
+    integrity.llm_calls += 2          # grounded search + structured name extraction
     registry = CitationRegistry(store)
     validation = ValidationReport()
 

@@ -38,3 +38,15 @@ subject_prefix: Sentinel · Analyse concurrentielle
 
 # Who "we" are. Omitting this key inherits profiles/onboarding.yaml's company_ref.
 company_ref: profiles/company.yaml
+
+# How many competitors to analyse. A CEILING, not a promise: any competitor whose
+# grounded research turns up no sources is skipped rather than guessed at, so a
+# run can return fewer. Cost is roughly 3 + 2n LLM calls, so this is the single
+# most effective cost dial — 3 costs 9 calls, the engine default of 10 costs 23.
+# Omit the key to take the engine default; the loader refuses anything outside 1..20.
+#
+# Which competitors are analysed is controlled from profiles/company.yaml:
+# `known_competitors` always survive, `excluded_names` never appear, and the rest
+# are discovered by grounded search. With 2 declared and a ceiling of 3, a run
+# exercises both paths: the two declared names plus one found by search.
+max_competitors: 3

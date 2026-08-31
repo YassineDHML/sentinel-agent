@@ -8,6 +8,8 @@ import json
 
 import pytest
 
+from types import SimpleNamespace
+
 from sentinel.config import ConfigError
 from sentinel.report.competitor_builder import (
     build_competitor_context,
@@ -18,7 +20,6 @@ from sentinel.research.competitors import (
     THREAT_LEVELS,
     discover_competitors,
     run_competitor_report,
-    _names_from_text,
 )
 from sentinel.research.grounding import GroundedResult, GroundedSource
 
@@ -69,6 +70,15 @@ def _writer(dossier_blocks=None, synthesis_blocks=None):
     return write
 
 
+def _name_writer(*names, raw=None):
+    """Stands in for the discovery name-extraction call."""
+    def write(prompt: str) -> str:
+        if raw is not None:
+            return raw
+        return json.dumps({"blocks": [{"name": n, "sells": "things"} for n in names]})
+    return write
+
+
 # --------------------------------------------------------------------------- #
 # Company profile
 # --------------------------------------------------------------------------- #
@@ -95,24 +105,49 @@ def test_missing_company_file_explains_itself():
 # --------------------------------------------------------------------------- #
 # Discovery
 # --------------------------------------------------------------------------- #
-def test_names_extracted_from_all_common_list_formats():
-    text = ("1. Relevance AI — no-code agents\n"
-            "2. **CrewAI**: orchestration\n"
-            "- Zapier Agents - automation\n"
-            "* n8n — open source\n")
-    assert _names_from_text(text) == ["Relevance AI", "CrewAI", "Zapier Agents", "n8n"]
+def _discover(text="Some prose about rivals.", writer=None, **kw):
+    return discover_competitors(
+        COMPANY, "m", grounded_fn=lambda *a, **k: _grounded(text=text),
+        writer=writer if writer is not None else _name_writer("Acme"), **kw)
+
+
+def test_names_come_from_the_structured_field_not_the_prose():
+    names, _ = _discover(writer=_name_writer("Relevance AI", "n8n"))
+    assert "Relevance AI" in names and "n8n" in names
+
+
+def test_a_field_label_can_no_longer_become_a_competitor():
+    """Regression, observed live. A regex over the discovery prose matched the
+    model's own sub-headings and produced a dossier for "What it sells" — two
+    grounded calls spent on a company that does not exist, and nothing downstream
+    could catch it, because the citation tiers verify that sources are real, not
+    that the subject is. Only the structured "name" field counts now, so prose
+    formatting cannot leak a heading into the competitor list."""
+    prose = ("### Sana Labs\n"
+             "- **What it sells:** AI learning agents\n"
+             "- **Why they compete:** same buyers\n")
+    names, _ = _discover(text=prose, writer=_name_writer("Sana Labs"))
+    assert names == ["CrewAI", "Relevance AI", "Sana Labs"]
+    assert "What it sells" not in names
 
 
 def test_declared_competitors_always_survive_discovery():
     """A rival the team already tracks must never be lost to a weak search."""
-    names, _ = discover_competitors(COMPANY, "m", grounded_fn=lambda *a, **k: _grounded(text=""))
+    names, _ = _discover(text="")
     assert "CrewAI" in names and "Relevance AI" in names
 
 
+def test_an_empty_search_skips_extraction_entirely():
+    """No prose means there is nothing to extract, so no second call to pay for."""
+    def explode(prompt):
+        raise AssertionError("extraction must not run on empty prose")
+
+    names, _ = _discover(text="", writer=explode)
+    assert names == ["CrewAI", "Relevance AI"]
+
+
 def test_our_own_company_is_never_a_competitor():
-    names, _ = discover_competitors(
-        COMPANY, "m",
-        grounded_fn=lambda *a, **k: _grounded(text="1. Welyne — us\n2. Acme — rival\n"))
+    names, _ = _discover(writer=_name_writer("Welyne", "Acme"))
     assert "Welyne" not in names
     assert "Acme" in names
 
@@ -121,14 +156,28 @@ def test_discovery_failure_falls_back_to_the_declared_list():
     def boom(*a, **k):
         raise RuntimeError("search down")
 
-    names, _ = discover_competitors(COMPANY, "m", grounded_fn=boom)
+    names, _ = discover_competitors(COMPANY, "m", grounded_fn=boom,
+                                    writer=_name_writer("Never"))
+    assert names == ["CrewAI", "Relevance AI"]
+
+
+def test_unparseable_extraction_keeps_the_declared_list():
+    """The report is still worth producing from what the team declared."""
+    names, _ = _discover(writer=_name_writer(raw="not json at all"))
+    assert names == ["CrewAI", "Relevance AI"]
+
+
+def test_an_extraction_crash_never_kills_the_report():
+    def boom(prompt):
+        raise RuntimeError("writer down")
+
+    names, _ = _discover(writer=boom)
     assert names == ["CrewAI", "Relevance AI"]
 
 
 def test_discovery_respects_the_max():
-    many = "\n".join(f"{i}. Rival{i} — does things" for i in range(1, 20))
-    names, _ = discover_competitors(COMPANY, "m", max_n=4,
-                                    grounded_fn=lambda *a, **k: _grounded(text=many))
+    names, _ = _discover(max_n=4,
+                         writer=_name_writer(*[f"Rival{i}" for i in range(1, 20)]))
     assert len(names) == 4
 
 
@@ -278,3 +327,96 @@ def test_llm_text_is_escaped():
     _, _, html, _ = _rendered(writer=_writer(payload), max_competitors=1)
     assert "<script>alert" not in html
     assert "&lt;script&gt;" in html
+
+
+# --------------------------------------------------------------------------- #
+# The CLI's --profile flag
+#
+# Without it a client could not preview what their request file will produce:
+# they would have to retype max_competitors on the command line, which is exactly
+# the drift the profile exists to prevent.
+# --------------------------------------------------------------------------- #
+def _cli(monkeypatch, argv, *, company=None):
+    """Run the competitors CLI against fakes; return (exit_code, captured kwargs)."""
+    import sys
+    from pathlib import Path
+
+    import sentinel.competitors.__main__ as cli
+    import sentinel.report.competitor_builder as builder_mod
+    import sentinel.research.company as company_mod
+    import sentinel.research.competitors as competitors_mod
+
+    seen: dict = {}
+
+    monkeypatch.setattr(cli, "load_settings", lambda: SimpleNamespace(
+        llm=SimpleNamespace(gemini_model="m"), app=SimpleNamespace(name="Sentinel")))
+    monkeypatch.setattr(cli, "require_secrets", lambda names: None)
+    monkeypatch.setattr(cli, "load_company",
+                        lambda ref=None: (seen.setdefault("company_ref", ref),
+                                          company or COMPANY)[1])
+
+    def fake_run(comp, model, *, max_competitors=None, period_label="", **kw):
+        seen["max"] = max_competitors
+        seen["period"] = period_label
+        seen["language"] = comp.language
+        return SimpleNamespace(dossiers=[SimpleNamespace(
+            threat_level="high", name="X", strengths=[], weaknesses=[], risks=[])],
+            top_threats=[], action_plan=[],
+            integrity=SimpleNamespace(
+                evidence_total=1, claims_accepted=1, claims_dropped=0,
+                unresolvable_citations=0, llm_calls=4, degradations=[]))
+
+    monkeypatch.setattr(cli, "run_competitor_report", fake_run)
+    monkeypatch.setattr(cli, "write_competitor_report",
+                        lambda *a, **kw: (seen.setdefault("slug", kw.get("slug")),
+                                          (Path("out.html"), "<html></html>"))[1])
+    monkeypatch.setattr(sys, "argv", ["prog", *argv])
+    return cli._main(), seen
+
+
+def test_profile_supplies_the_competitor_count_and_period(monkeypatch, tmp_path):
+    path = tmp_path / "q.yaml"
+    path.write_text(
+        "slug: my_scan\nreport_type: competitor_scan\ntheme: Rivals\n"
+        "cadence: quarterly\nlanguage: en\n"
+        "company_ref: profiles/company.yaml\nmax_competitors: 3\n",
+        encoding="utf-8")
+
+    code, seen = _cli(monkeypatch, ["--profile", str(path), "--dry-run"])
+
+    assert code == 0
+    assert seen["max"] == 3                     # from the profile, not the default
+    assert seen["period"].endswith(("Q1", "Q2", "Q3", "Q4"))   # quarterly cadence
+    assert seen["slug"] == "my_scan"            # same filename the dispatcher writes
+    assert seen["company_ref"] == "profiles/company.yaml"
+    assert seen["language"] == "en"
+
+
+def test_an_explicit_flag_still_beats_the_profile(monkeypatch, tmp_path):
+    path = tmp_path / "q.yaml"
+    path.write_text(
+        "slug: my_scan\nreport_type: competitor_scan\ntheme: Rivals\n"
+        "cadence: quarterly\ncompany_ref: profiles/company.yaml\nmax_competitors: 3\n",
+        encoding="utf-8")
+
+    _, seen = _cli(monkeypatch, ["--profile", str(path), "--max", "7", "--dry-run"])
+    assert seen["max"] == 7
+
+
+def test_without_a_profile_the_engine_default_applies(monkeypatch):
+    from sentinel.research.competitors import MAX_COMPETITORS
+
+    _, seen = _cli(monkeypatch, ["--dry-run"])
+    assert seen["max"] == MAX_COMPETITORS
+    assert seen["slug"] == "competitors"
+
+
+def test_a_non_competitor_profile_is_refused_before_spending_quota(monkeypatch, tmp_path):
+    """A deep_research profile here would silently produce the wrong report."""
+    path = tmp_path / "r.yaml"
+    path.write_text("slug: research_one\nreport_type: deep_research\ntheme: AI\n",
+                    encoding="utf-8")
+
+    code, seen = _cli(monkeypatch, ["--profile", str(path), "--dry-run"])
+    assert code == 1
+    assert "max" not in seen        # nothing was generated

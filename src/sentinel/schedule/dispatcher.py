@@ -213,14 +213,19 @@ def execute_competitor_scan(
 
     from ..report.competitor_builder import write_competitor_report
     from ..research.company import load_company
-    from ..research.competitors import run_competitor_report
+    from ..research.competitors import MAX_COMPETITORS, run_competitor_report
 
     company = load_company(due.profile.company_ref)
     if due.profile.language and due.profile.language != company.language:
         company = dataclasses.replace(company, language=due.profile.language)
 
-    report = run_competitor_report(company, settings.llm.gemini_model,
-                                   period_label=due.period.key)
+    # None means "no opinion" — defer to the engine's default rather than
+    # duplicating the number in the profile layer.
+    requested = due.profile.max_competitors
+    report = run_competitor_report(
+        company, settings.llm.gemini_model, period_label=due.period.key,
+        max_competitors=MAX_COMPETITORS if requested is None else requested,
+    )
     if not report.dossiers:
         raise RuntimeError("no competitor could be sourced")
 

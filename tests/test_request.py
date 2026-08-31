@@ -127,6 +127,33 @@ def test_competitor_scan_requires_a_company_ref():
     assert ok.company_ref == "profiles/company.yaml"
 
 
+def test_max_competitors_defaults_to_none_so_the_engine_decides():
+    """None, not 10 — the number must live in exactly one place when nobody
+    overrides it, otherwise the profile layer silently forks the default."""
+    assert profile_from_dict(MINIMAL).max_competitors is None
+
+
+def test_max_competitors_is_accepted_and_coerced():
+    assert profile_from_dict({**MINIMAL, "max_competitors": 6}).max_competitors == 6
+    # YAML can hand us a string; the engine slices a list with it, so coerce.
+    assert profile_from_dict({**MINIMAL, "max_competitors": "3"}).max_competitors == 3
+
+
+@pytest.mark.parametrize("bad", [0, -1, 21, 200])
+def test_max_competitors_outside_the_band_is_refused(bad):
+    """0 would produce an empty list and fail the run with 'no competitor could be
+    sourced'; 200 would burn a day of free-tier quota on one report."""
+    with pytest.raises(ConfigError, match="max_competitors"):
+        profile_from_dict({**MINIMAL, "max_competitors": bad})
+
+
+def test_a_non_numeric_max_competitors_raises_config_error_not_value_error():
+    """load_profiles() only catches ConfigError. A bare int() raising ValueError
+    would abort the entire daily dispatch instead of skipping one bad file."""
+    with pytest.raises(ConfigError, match="must be an integer"):
+        profile_from_dict({**MINIMAL, "max_competitors": "six"})
+
+
 def test_empty_topics_override_is_rejected():
     """An empty list would silently disable classification; omit the key instead."""
     with pytest.raises(ConfigError, match="empty list"):

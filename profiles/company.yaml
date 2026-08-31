@@ -36,12 +36,13 @@ differentiators:
 
 # Competitors you already know about. The report also discovers others; these are
 # always included so a known rival is never missed.
+#
+# Kept deliberately short: every declared name consumes one of the
+# `max_competitors` slots before search gets a look in, and each costs ~2 LLM
+# calls. Two leaves room for the discovery path to contribute.
 known_competitors:
-  - Relevance AI
-  - CrewAI
-  - LangChain
-  - Make
-  - Zapier
+  - Capgemini
+  - Accenture
 
 # Never treat these as competitors (partners, suppliers, our own brands).
 excluded_names:

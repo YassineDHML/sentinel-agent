@@ -594,3 +594,54 @@ def test_a_blocked_claim_reports_already_produced_not_a_race():
     assert calls == []
     assert "already produced" in report.outcomes[0].error
     assert "--force" in report.outcomes[0].error
+
+
+# --------------------------------------------------------------------------- #
+# The competitor executor honours {max_competitors}
+#
+# Regression: the executor used to call run_competitor_report() without the
+# argument, so a scheduled scan always analysed the engine default (10) no matter
+# what the request asked for. The CLI's --max worked; the scheduler's did not.
+# --------------------------------------------------------------------------- #
+def _competitor_probe(monkeypatch, profile):
+    """Run execute_competitor_scan against fakes; return the max_competitors seen."""
+    import sentinel.report.competitor_builder as builder_mod
+    import sentinel.research.company as company_mod
+    import sentinel.research.competitors as competitors_mod
+    from sentinel.period import Period
+    from sentinel.schedule.dispatcher import execute_competitor_scan
+    from sentinel.schedule.due import DueRequest
+
+    seen: dict = {}
+
+    monkeypatch.setattr(company_mod, "load_company",
+                        lambda ref=None: SimpleNamespace(name="Welyne", language="fr"))
+
+    def fake_run(company, model, *, period_label="", max_competitors=None, **kw):
+        seen["max"] = max_competitors
+        return SimpleNamespace(dossiers=[object()], company=company.name,
+                               integrity=SimpleNamespace(degradations=[]))
+
+    monkeypatch.setattr(competitors_mod, "run_competitor_report", fake_run)
+    monkeypatch.setattr(builder_mod, "write_competitor_report",
+                        lambda *a, **kw: (Path("out.html"), "<html></html>"))
+
+    due = DueRequest(profile, Period.containing("quarter", JAN))
+    settings = _settings()
+    execute_competitor_scan(due, settings, Repos(), emailer=lambda *a, **kw: True)
+    return seen["max"]
+
+
+def test_a_requested_competitor_count_reaches_the_engine(monkeypatch):
+    profile = _profile("comp", report_type="competitor_scan", cadence="quarterly",
+                       company_ref="profiles/company.yaml", max_competitors=4)
+    assert _competitor_probe(monkeypatch, profile) == 4
+
+
+def test_omitting_the_count_falls_back_to_the_engine_default(monkeypatch):
+    from sentinel.research.competitors import MAX_COMPETITORS
+
+    profile = _profile("comp", report_type="competitor_scan", cadence="quarterly",
+                       company_ref="profiles/company.yaml")
+    assert profile.max_competitors is None
+    assert _competitor_probe(monkeypatch, profile) == MAX_COMPETITORS

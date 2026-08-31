@@ -57,6 +57,12 @@ CADENCES: tuple[str, ...] = ("weekly", "monthly", "quarterly", "once")
 DEFAULT_WORD_TARGET = 3000
 DEFAULT_WORD_TOLERANCE = 250
 
+# Upper bound on {max_competitors}. Not a capability limit — the engine only
+# slices a list and would happily accept 200 — but a guard against a typo
+# costing a day's LLM quota: a scan is 3 + 2n calls, and dispatch.yml allows
+# 45 minutes for up to two reports. Values near this ceiling are legal but slow.
+MAX_COMPETITORS_CEILING = 20
+
 
 @dataclass(frozen=True)
 class RequestProfile:
@@ -99,6 +105,9 @@ class RequestProfile:
 
     # capability 2: which company profile to compare against
     company_ref: str | None = None
+    # How many competitors to analyse. ``None`` defers to the engine's own
+    # default, so the number lives in exactly one place when nobody overrides it.
+    max_competitors: int | None = None
 
     @property
     def locale(self) -> Locale:
@@ -236,6 +245,22 @@ def profile_from_dict(
     if report_type == "competitor_scan" and not company_ref:
         raise ConfigError("report_type 'competitor_scan' requires a 'company_ref'")
 
+    # Coerced inside a try: load_profiles() only catches ConfigError, so a bare
+    # int() raising ValueError here would abort the whole daily dispatch instead
+    # of skipping one unusable file.
+    raw_max = data.get("max_competitors")
+    max_competitors: int | None = None
+    if raw_max is not None:
+        try:
+            max_competitors = int(raw_max)
+        except (TypeError, ValueError) as exc:
+            raise ConfigError("'max_competitors' must be an integer") from exc
+        if not 1 <= max_competitors <= MAX_COMPETITORS_CEILING:
+            raise ConfigError(
+                f"max_competitors must be between 1 and {MAX_COMPETITORS_CEILING} "
+                f"(got {max_competitors}); each competitor costs about 2 LLM calls"
+            )
+
     sector = data.get("sector")
     profile = RequestProfile(
         slug=resolved_slug,
@@ -261,6 +286,7 @@ def profile_from_dict(
         feeds=_build_feeds(data.get("feeds"), "feeds"),
         benchmark_houses=_str_list(data.get("benchmark_houses"), "benchmark_houses") or [],
         company_ref=str(company_ref) if company_ref else None,
+        max_competitors=max_competitors,
         trend_scope=(str(data["trend_scope"]).strip() if data.get("trend_scope") else None),
     )
     # fail fast on an unusable language/zone combination rather than at query time
