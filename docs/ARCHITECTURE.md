@@ -118,7 +118,7 @@ src/sentinel/
 templates/            # report.html · research_report.html · competitor_report.html
 requests/             # one YAML per report request ({A}..{F} + cadence)
 profiles/             # company.yaml (who we are) · onboarding.yaml (org defaults)
-tests/                # 429 tests; ALL external calls mocked (no secrets needed)
+tests/                # 452 tests; ALL external calls mocked (no secrets needed)
 config.yaml           # every non-secret setting (see §9)
 .env / .env.example   # every secret (never committed)
 ```
@@ -475,6 +475,18 @@ requests/<slug>.yaml  ──load_profile──►  RequestProfile ({A}..{F})
 | {E} sector focus | `sector` | narrows the analysis lens |
 | {F} objective | `objective` | orients opportunities/recommendations |
 
+Beyond {A}..{F} a profile also carries scheduling intent (`cadence`, `scheduled`),
+delivery (`recipients`, `subject_prefix`), length (`word_target`, `word_tolerance`,
+deep research only) and, for a competitor scan, `company_ref` and `max_competitors`
+(§8e). Keys a request omits fall back to `profiles/onboarding.yaml`, then to
+`config.yaml`.
+
+**Which capability reads which key matters more than the table suggests.** The
+collection-shaping keys (`discovery_queries`, `relevance_keywords`, `relevance_exclude`,
+`topics`, `feeds`) reach the pipeline through `apply_profile` and therefore affect **the
+weekly watch only** — deep research and competitor scans never run the collectors. For
+those two, {A}..{F} arrive as prompt text and nothing else.
+
 Key properties, each pinned by a test:
 - **`apply_profile(settings, None) is settings`** — no profile means literally no change.
 - **Only keys the profile sets are overridden**; everything else keeps its `config.yaml`
@@ -483,9 +495,12 @@ Key properties, each pinned by a test:
   Google News URL and the GNews params are identical to the previously hardcoded ones.
 - **Prompt/template defaults reproduce the original text**, so the English report is
   byte-identical (the golden snapshot test is the tripwire).
-- **A profile overriding `topics` is refused write access to `trends`** — that table is
-  keyed `UNIQUE(topic, week)` *globally*, so two taxonomies would overwrite each other.
-  The run still produces its report; only trend persistence is skipped, with a warning.
+- **A custom taxonomy is refused only in a *shared* trend scope.** Phase 18 re-keyed
+  `trends` to `UNIQUE(request_slug, week, topic)`, so a profile that overrides `topics`
+  is now perfectly safe in its own namespace (the default). The one remaining refusal is
+  a custom taxonomy writing into a scope the request does not own — two taxonomies in one
+  namespace cannot be told apart. The run still produces its report; only trend
+  persistence is skipped, with a warning. See §5.5.
 
 Labels live in `report/i18n.py` (`HEADINGS[lang]`); the template holds no English.
 
@@ -604,24 +619,38 @@ external assets — and the model never emits HTML (JSON → context → Jinja, 
 
 `python -m sentinel.competitors`
 
-Capability 2: 5–10 competitors ranked by threat, a dossier each, and a strategic
+Capability 2: competitors ranked by threat, a dossier each, and a strategic
 synthesis naming the three most dangerous with an action plan. Written *from our point
 of view*, which is why it needs `profiles/company.yaml` — the company profile that
 finally replaces the name once hardcoded inside a prompt.
 
 ```
-DISCOVER   declared competitors ∪ grounded search      (1 call)
-DOSSIER    per competitor: grounded research → structure   (2 calls each)
-SYNTHESIS  top-3 threats + action plan                 (1 call)
+DISCOVER   grounded search → prose  +  structured name extraction   (2 calls)
+           ∪ declared competitors, minus excluded_names
+DOSSIER    per competitor: grounded research → structure         (2 calls each)
+SYNTHESIS  top-3 threats + action plan                           (1 call)
 ```
 
-Three deliberate choices:
+**Cost is `3 + 2n`** — 9 calls at `max_competitors: 3`, 23 at the default of 10. That
+makes the count the single most effective cost dial, which is why it is settable per
+request (below).
+
+Four deliberate choices:
 
 - **One grounded call per competitor**, not one big call. Each JSON response stays
   small (truncation unlikely, and cheap when it happens), and a competitor that can't
   be researched is a graceful skip rather than a lost report.
 - **Declared competitors always survive discovery.** A rival the team already tracks
   can never be dropped because a search missed it.
+- **Names come from a structured call, never from a regex over the prose.** Discovery
+  used to scrape names out of the grounded text with a regular expression. It was wrong
+  in both directions — observed live, it matched the model's own sub-headings and
+  produced a full dossier for *"What it sells"* while missing every real company, whose
+  names arrive as markdown headings with no bullet prefix. The phantom cost two grounded
+  calls and reached the rendered report, where nothing could catch it: **the citation
+  tiers verify that sources are real, not that the subject is.** Discovery now uses the
+  same ACQUIRE → WRITE split as the rest of the pipeline, so a name can only arrive in a
+  `name` field and a heading can no longer become a competitor.
 - **Unsourced numbers are omitted, not hedged.** Market share or traction appears only
   when a source provides it — never "approximately". The spec invites *argued
   hypotheses*, so those are allowed, but only as Tier C: anchored to real evidence and
@@ -629,6 +658,33 @@ Three deliberate choices:
 
 `threat_level` and `positioning` are closed enums validated in code; an out-of-set value
 falls back to `medium` with a warning rather than reaching the report.
+
+**Choosing who gets analysed, and how many.** Both are configuration, not code:
+
+| Want | Set | Where |
+|---|---|---|
+| always analyse a known rival | `known_competitors` | `profiles/company.yaml` |
+| never analyse someone (partner, own brand) | `excluded_names` | `profiles/company.yaml` |
+| cap how many are analysed | `max_competitors` (1–20) | `requests/<slug>.yaml` |
+
+`max_competitors` is a **ceiling, not a promise**: a competitor whose grounded research
+returns no sources is skipped rather than guessed at, and nothing tops the list back up,
+so a run can return fewer. Declared names consume slots first, so with 2 declared and a
+ceiling of 3 exactly one slot is left for discovery. Omit the key to take the engine
+default of 10; the loader refuses anything outside 1–20, since a typo here costs a day's
+free-tier quota. `MIN_COMPETITORS = 5` exists only as text inside the discovery prompt —
+**no code enforces a lower bound.**
+
+Preview what the scheduler would produce for a request, without editing anything:
+
+```bash
+python -m sentinel.competitors --profile requests/competitors_quarterly.yaml --dry-run
+```
+
+That takes the company profile, language, count, period **and output filename** from the
+request file, so the preview is directly comparable with the scheduled run. Individual
+flags still win over the profile (`--max 6` overrides it), and pointing `--profile` at a
+non-`competitor_scan` request is refused rather than silently producing the wrong report.
 
 ## 8f. Scheduling — one cadence per request
 
@@ -765,8 +821,12 @@ python -m sentinel.pipeline --dry-run --limit 5    # end-to-end, no writes/sends
 python -m sentinel.pipeline                        # the real weekly run
 
 # parameterized reports (v2 capabilities)
+# NB: --dry-run here still does the real research and spends real LLM quota; it
+#     only skips the DB archive. Neither CLI ever sends email — see §8f.
 python -m sentinel.research --profile requests/ai_healthcare_fr.yaml --dry-run
-python -m sentinel.competitors --dry-run
+python -m sentinel.competitors --dry-run                       # ad-hoc, engine defaults
+python -m sentinel.competitors --profile requests/competitors_quarterly.yaml --dry-run
+python -m sentinel.competitors --max 3 --dry-run               # cheapest useful scan
 
 # scheduling
 python -m sentinel.schedule --dry-run              # plan only: generates/sends nothing
@@ -774,12 +834,12 @@ python -m sentinel.schedule --date 2026-10-02 --dry-run   # plan for another day
 python -m sentinel.schedule --only <slug> --force  # re-run one request's period
 python -m sentinel.schedule                        # run + deliver everything due
 
-pytest                                     # 429 tests, all externals mocked, no secrets
+pytest                                     # 452 tests, all externals mocked, no secrets
 ```
 
 ## 11. Testing philosophy
 
-`tests/` holds 429 tests and **none of them touch the network, the DB, or an LLM**:
+`tests/` holds 452 tests and **none of them touch the network, the DB, or an LLM**:
 
 - collectors are tested against **saved fixture payloads** (`tests/fixtures/`);
 - Supabase is a `MagicMock`/in-memory fake; the SMTP client and Slack webhook are fakes;
@@ -855,4 +915,25 @@ weekly report is still byte-identical to its golden file.
    the row (and its summary/topics, written by whichever ran first). That is fine while
    requests share the canonical taxonomy and wasteful when they don't — a per-request
    `article_analyses` table would fix it, and nothing today depends on the current shape.
-4. **No web UI.** Requests are YAML in the repo, by decision (§11.3 of the spec).
+4. **Tier A evidence is never populated in production.** `run_research()` accepts a
+   `corpus_articles` argument that would register collected articles as Tier A, but no
+   production caller passes it — not `research/__main__.py`, not
+   `dispatcher.execute_deep_research`. Only a test does. So **every deep-research report
+   is 100% Tier B (web)** and its methodology footer always reads `corpus: 0`. The
+   three-tier policy is fully implemented and tested; tier A is simply dormant. Both
+   halves of the plumbing exist — this is a one-line wiring gap, not a design problem.
+5. **The `report_sources` table is never written.** The schema, the repository class and
+   the row shape all exist (§4), but outside its own unit test nothing inserts a row. The
+   citation ledger is therefore not yet queryable after the fact; the source list survives
+   only as HTML inside `reports.content_html`. Wiring it is roughly a ten-line loop in
+   `write_research_report`, which already has both the report id and a deduplicated
+   source list in scope.
+6. **The two v2 capabilities have no trend memory.** `execute_deep_research` and
+   `execute_competitor_scan` never receive a `trend_repo`; the `trends` table belongs to
+   the weekly watch alone. The `heavy_trend` / `weak_signal` block *kinds* in a research
+   report are the LLM's own judgement over one run's evidence — they share nothing but the
+   word with `analyze/trends.py`'s counted, persisted, cross-period signals. Consequence:
+   two monthly research reports on the same theme are fully independent, so the second
+   cannot say "this accelerated" or notice a topic quietly recurring. Worth knowing before
+   reading `weak_signal` as a claim about persistence over time.
+7. **No web UI.** Requests are YAML in the repo, by decision (§11.3 of the spec).

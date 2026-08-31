@@ -58,6 +58,33 @@ Seed a scope's history from past weeks with:
 python scripts/backfill.py --weeks 6 --scope <slug>
 ```
 
+## Competitor scans
+
+Two files decide a competitor report, and they answer different questions:
+
+| Question | Key | File |
+|---|---|---|
+| Who are *we*? | the whole file | `profiles/company.yaml` |
+| Who must always be analysed? | `known_competitors` | `profiles/company.yaml` |
+| Who must never be? | `excluded_names` | `profiles/company.yaml` |
+| How many at most? | `max_competitors` (1–20) | this request file |
+
+`max_competitors` is a **ceiling, not a promise** — a competitor whose grounded research
+finds no sources is skipped rather than guessed at. Declared names take slots first, so
+2 declared with a ceiling of 3 leaves exactly one slot for discovery. Cost is `3 + 2n`
+LLM calls (9 at 3, 23 at the default of 10), which makes it the main cost dial. Omit the
+key to take the engine default.
+
+Preview what the scheduler would produce, without editing anything:
+
+```bash
+python -m sentinel.competitors --profile requests/competitors_quarterly.yaml --dry-run
+```
+
+It takes the company profile, language, count, period and output filename from the
+request, so the result is directly comparable with the scheduled run. `--max` and
+`--language` still override it.
+
 ## Inherited defaults
 
 Any key a request omits falls back to [`../profiles/onboarding.yaml`](../profiles/onboarding.yaml)

@@ -69,7 +69,12 @@ relevance_exclude:
   - crypto
 
 # Named research houses whose published work should be sought for benchmarks.
-# (Used by the deep-research sourcing step; see the citation policy.)
+#
+# ⚠ NOT WIRED UP. This key is parsed and validated onto RequestProfile, but no code
+# reads it — editing this list changes nothing. The houses actually prioritised are
+# hardcoded in ACQUIRE_INSTRUCTIONS (research/prompts.py): McKinsey, BCG, Bain,
+# Deloitte, PwC, Gartner, Forrester, IDC. Kept because the field is the right shape
+# for the feature; make the prompt read it before treating it as configuration.
 benchmark_houses:
   - McKinsey
   - BCG
@@ -78,6 +83,13 @@ benchmark_houses:
   - IDC
   - OCDE
 
-# NOTE: `topics` is intentionally NOT overridden. A custom taxonomy is refused
-# write access to the shared `trends` table (keyed UNIQUE(topic, week) globally)
-# until trends are namespaced per request.
+# NOTE: `topics` is intentionally NOT overridden — but the old reason no longer
+# applies. Trends are namespaced per request now (UNIQUE(request_slug, week, topic)),
+# so a custom taxonomy is perfectly safe in this request's own scope, which is the
+# default. It would only be refused if this file also set `trend_scope` to a scope it
+# does not own. This request simply has no need to depart from the canonical list.
+#
+# This request is `report_type: deep_research`, and the deep-research engine does not
+# run the collectors at all — so `topics`, `feeds`, `discovery_queries` and the
+# relevance keys above are inert for it. They apply when a profile drives the weekly
+# watch. Kept here because they document the theme and cost nothing.
