@@ -319,11 +319,14 @@ def dispatch(
     for item in due:
         report.outcomes.append(
             _run_one(item, settings, repos, onboarding=onboarding,
-                     emailer=emailer, executors=executors)
+                     emailer=emailer, executors=executors, force=force)
         )
 
-    logger.info("Dispatch finished: %d succeeded, %d failed, %d skipped, %d deferred.",
-                report.succeeded, len(report.outcomes) - report.succeeded,
+    failed = sum(1 for o in report.outcomes if o.status == runs_mod.FAILED)
+    not_claimed = sum(1 for o in report.outcomes if o.status == runs_mod.SKIPPED)
+    logger.info("Dispatch finished: %d succeeded, %d failed, %d not claimed, "
+                "%d not due, %d deferred.",
+                report.succeeded, failed, not_claimed,
                 len(report.skipped), len(report.deferred))
     return report
 
@@ -336,6 +339,7 @@ def _run_one(
     onboarding: Onboarding | None,
     emailer: Callable[..., bool],
     executors: dict[str, Callable[..., ExecutionResult]],
+    force: bool = False,
 ) -> Outcome:
     """Claim, execute and deliver a single request. Never raises."""
     profile, period = item.profile, item.period
@@ -345,7 +349,8 @@ def _run_one(
     run_repo = repos.runs or runs_mod.MemoryRunRepository()
     try:
         claim = run_repo.claim(request_slug=profile.slug, period_key=period.key,
-                               report_type=profile.report_type, period_kind=period.kind)
+                               report_type=profile.report_type, period_kind=period.kind,
+                               force=force)
     except Exception as exc:  # noqa: BLE001 - an unusable ledger fails this request only
         outcome.status = runs_mod.FAILED
         outcome.error = f"could not claim a run: {exc}"
@@ -355,7 +360,7 @@ def _run_one(
         return outcome
 
     if claim is None:
-        outcome.error = "claimed by another dispatch"
+        outcome.error = _why_not_claimed(run_repo, profile.slug, period.key)
         logger.info("skip %s: %s", profile.slug, outcome.error)
         return outcome
 
@@ -400,6 +405,24 @@ def _run_one(
             note=str(result.report_path) if result.report_path else None)
     logger.info("Done %s", outcome.describe())
     return outcome
+
+
+def _why_not_claimed(run_repo: Any, slug: str, period_key: str) -> str:
+    """Explain a refused claim by reading the row, instead of guessing.
+
+    The three cases look identical from ``claim() -> None`` but mean very
+    different things to an operator, so it is worth one extra read.
+    """
+    try:
+        row = run_repo.get(slug, period_key)
+    except Exception:  # noqa: BLE001 - never let diagnostics break the dispatch
+        return "could not be claimed"
+    status = str((row or {}).get("status") or "").lower()
+    if status in runs_mod.BLOCKING_STATUSES:
+        return f"already produced for this period (status={status}); use --force to redo it"
+    if status == runs_mod.RUNNING:
+        return "currently running in another dispatch"
+    return "could not be claimed"
 
 
 def _finish(run_repo: Any, claim: dict, **kwargs: Any) -> None:

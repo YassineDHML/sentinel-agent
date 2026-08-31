@@ -524,3 +524,73 @@ def test_a_ledger_write_failure_does_not_undo_a_delivered_report():
 
     assert calls and sent
     assert report.outcomes[0].status == runs_mod.SUCCESS
+
+
+# --------------------------------------------------------------------------- #
+# --force must reach the CLAIM, not just the plan
+# --------------------------------------------------------------------------- #
+def test_force_reopens_an_already_successful_period():
+    """The plan honouring --force is useless if the claim still refuses."""
+    repo = MemoryRunRepository()
+    first = repo.claim(request_slug="req", period_key="2026-Q3")
+    repo.finish(first["id"], status=runs_mod.SUCCESS)
+
+    assert repo.claim(request_slug="req", period_key="2026-Q3") is None      # normal: refused
+    forced = repo.claim(request_slug="req", period_key="2026-Q3", force=True)
+    assert forced is not None and forced["status"] == runs_mod.RUNNING
+
+
+def test_force_does_not_steal_a_run_that_is_still_in_flight():
+    """Overriding a live run would mean two dispatches generating and emailing."""
+    repo = MemoryRunRepository()
+    repo.claim(request_slug="req", period_key="2026-Q3", now=JAN)            # left running
+
+    assert repo.claim(request_slug="req", period_key="2026-Q3", force=True,
+                      now=JAN + timedelta(minutes=5)) is None
+
+
+def test_force_still_reclaims_a_stale_running_row():
+    repo = MemoryRunRepository()
+    repo.claim(request_slug="req", period_key="2026-Q3", now=JAN)
+    assert repo.claim(request_slug="req", period_key="2026-Q3", force=True,
+                      now=JAN + timedelta(hours=7)) is not None
+
+
+def test_forced_dispatch_actually_regenerates():
+    """End to end: the whole point of --force."""
+    profiles = [_profile(cadence="quarterly")]
+    repos = Repos(runs=MemoryRunRepository())
+    _dispatch(profiles, repos=repos)                       # first run consumes the period
+
+    report, calls, sent, _ = _dispatch(profiles, repos=repos, force=True)
+
+    assert calls, "--force must re-run the period"
+    assert report.succeeded == 1 and sent
+
+
+def test_a_refused_claim_explains_why_instead_of_blaming_a_race():
+    profiles = [_profile(cadence="quarterly")]
+    repos = Repos(runs=MemoryRunRepository())
+    _dispatch(profiles, repos=repos)
+    report, _, _, _ = _dispatch(profiles, repos=repos, force=False, executor_kw={})
+
+    # nothing due, so no outcome at all — the planner filtered it
+    assert report.outcomes == [] and len(report.skipped) == 1
+
+
+def test_a_blocked_claim_reports_already_produced_not_a_race():
+    """When the planner is forced past the ledger but the claim still refuses."""
+    class StillBlocking(MemoryRunRepository):
+        def claim(self, **kw):
+            return None
+
+    repos = Repos(runs=StillBlocking())
+    repos.runs.rows[("req", "2026-Q1")] = {          # JAN is Q1
+        "id": 1, "request_slug": "req", "period_key": "2026-Q1",
+        "status": runs_mod.SUCCESS, "attempts": 1, "started_at": JAN.isoformat()}
+
+    report, calls, _, _ = _dispatch([_profile(cadence="quarterly")], repos=repos, force=True)
+
+    assert calls == []
+    assert "already produced" in report.outcomes[0].error
+    assert "--force" in report.outcomes[0].error

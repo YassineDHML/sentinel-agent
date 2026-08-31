@@ -140,11 +140,17 @@ class RunRepository:
         period_kind: str | None = None,
         now: datetime | None = None,
         reclaim_after_hours: int = RECLAIM_AFTER_HOURS,
+        force: bool = False,
     ) -> Row | None:
         """Take ownership of ``(request_slug, period_key)``, or return ``None``.
 
         ``None`` means somebody else owns this period (or it is already done) —
         the caller must not generate or send anything.
+
+        ``force`` re-opens a period that is already ``success``/``skipped`` — the
+        deliberate "produce it again" escape hatch. It does **not** steal a run
+        that is genuinely in flight: a fresh ``running`` row still refuses, because
+        overriding it would mean two dispatches generating and emailing at once.
         """
         moment = _now(now)
         row: Row = {
@@ -172,22 +178,28 @@ class RunRepository:
                          request_slug, period_key)
 
         return self._reclaim(request_slug, period_key, now=moment,
-                             reclaim_after_hours=reclaim_after_hours)
+                             reclaim_after_hours=reclaim_after_hours, force=force)
 
     def _reclaim(
         self, request_slug: str, period_key: str, *, now: datetime,
-        reclaim_after_hours: int,
+        reclaim_after_hours: int, force: bool = False,
     ) -> Row | None:
-        """Take over an existing row if it is failed or a stale ``running``."""
+        """Take over an existing row if it is failed, a stale ``running``, or forced."""
         existing = self.get(request_slug, period_key)
         if existing is None:                      # deleted between insert and read
             return None
-        if is_blocking(existing, now=now, reclaim_after_hours=reclaim_after_hours):
-            logger.info("Run %s/%s is owned (status=%s); skipping.",
-                        request_slug, period_key, existing.get("status"))
-            return None
 
         observed = str(existing.get("status") or "").lower()
+        forced_reopen = force and observed in BLOCKING_STATUSES
+        if not forced_reopen and is_blocking(
+                existing, now=now, reclaim_after_hours=reclaim_after_hours):
+            logger.info("Run %s/%s is owned (status=%s); skipping.%s",
+                        request_slug, period_key, observed,
+                        "" if observed == RUNNING else " Use --force to produce it again.")
+            return None
+        if forced_reopen:
+            logger.warning("Forcing a re-run of %s/%s (was %s).",
+                           request_slug, period_key, observed)
         patch = {
             "status": RUNNING,
             "attempts": int(existing.get("attempts") or 0) + 1,
@@ -266,10 +278,13 @@ class MemoryRunRepository:
                       reverse=True)[:limit]
 
     def claim(self, *, request_slug, period_key, report_type=None, period_kind=None,
-              now=None, reclaim_after_hours=RECLAIM_AFTER_HOURS) -> Row | None:
+              now=None, reclaim_after_hours=RECLAIM_AFTER_HOURS, force=False) -> Row | None:
         existing = self.rows.get((request_slug, period_key))
         if existing is not None:
-            if is_blocking(existing, now=now, reclaim_after_hours=reclaim_after_hours):
+            observed = str(existing.get("status") or "").lower()
+            forced_reopen = force and observed in BLOCKING_STATUSES
+            if not forced_reopen and is_blocking(
+                    existing, now=now, reclaim_after_hours=reclaim_after_hours):
                 return None
             existing.update(status=RUNNING, attempts=int(existing.get("attempts") or 0) + 1,
                             started_at=_iso(_now(now)), finished_at=None, error=None)
